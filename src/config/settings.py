@@ -119,6 +119,28 @@ class SignalSettings:
 
 
 @dataclass(frozen=True)
+class LabelingSettings:
+    """TP/SL first-touch labeling settings."""
+
+    lookahead_bars: int
+    stop_loss_atr_multiplier: float
+    take_profit_atr_multiplier: float
+
+
+@dataclass(frozen=True)
+class TrainingSettings:
+    """Model training settings."""
+
+    train_ratio: float
+    validation_ratio: float
+    test_ratio: float
+    random_state: int
+    n_estimators: int
+    max_depth: int | None
+    model_dir: Path
+
+
+@dataclass(frozen=True)
 class Settings:
     """Root application settings."""
 
@@ -133,3 +155,5 @@ class Settings:
     model: ModelSettings
     risk: RiskSettings
     signal: SignalSettings
+    labeling: LabelingSettings
+    training: TrainingSettings

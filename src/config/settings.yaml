@@ -65,3 +65,17 @@ risk:
 signal:
   min_confidence: 0.55
   min_risk_reward: 1.5
+
+labeling:
+  lookahead_bars: 10
+  stop_loss_atr_multiplier: 1.5
+  take_profit_atr_multiplier: 3.0
+
+training:
+  train_ratio: 0.70
+  validation_ratio: 0.15
+  test_ratio: 0.15
+  random_state: 42
+  n_estimators: 300
+  max_depth: null
+  model_dir: models

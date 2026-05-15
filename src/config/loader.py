@@ -18,12 +18,14 @@ from config.settings import (
     DataSettings,
     FeatureSettings,
     FeatureToggleSettings,
+    LabelingSettings,
     LoggingSettings,
     MarketRegimeSettings,
     ModelSettings,
     RiskSettings,
     Settings,
     SignalSettings,
+    TrainingSettings,
 )
 
 
@@ -52,6 +54,8 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
     model_config = raw_config.get("model", {})
     risk_config = raw_config.get("risk", {})
     signal_config = raw_config.get("signal", {})
+    labeling_config = raw_config.get("labeling", {})
+    training_config = raw_config.get("training", {})
 
     database_path = os.getenv("LOCALQUANT_DB_PATH", database_config.get("path"))
     log_level = os.getenv("LOG_LEVEL", logging_config.get("level", "INFO"))
@@ -156,6 +160,24 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
             min_confidence=float(signal_config.get("min_confidence", 0.55)),
             min_risk_reward=float(signal_config.get("min_risk_reward", 1.5)),
         ),
+        labeling=LabelingSettings(
+            lookahead_bars=int(labeling_config.get("lookahead_bars", 10)),
+            stop_loss_atr_multiplier=float(
+                labeling_config.get("stop_loss_atr_multiplier", 1.5)
+            ),
+            take_profit_atr_multiplier=float(
+                labeling_config.get("take_profit_atr_multiplier", 3.0)
+            ),
+        ),
+        training=TrainingSettings(
+            train_ratio=float(training_config.get("train_ratio", 0.70)),
+            validation_ratio=float(training_config.get("validation_ratio", 0.15)),
+            test_ratio=float(training_config.get("test_ratio", 0.15)),
+            random_state=int(training_config.get("random_state", 42)),
+            n_estimators=int(training_config.get("n_estimators", 300)),
+            max_depth=_optional_int(training_config.get("max_depth", None)),
+            model_dir=_resolve_path(training_config.get("model_dir", "models"), base_dir),
+        ),
     )
 
 
@@ -248,3 +270,10 @@ def _as_tuple(value: Any) -> tuple[str, ...]:
     if isinstance(value, list | tuple):
         return tuple(str(item) for item in value)
     raise ValueError(f"Expected string or list value, got {type(value).__name__}.")
+
+
+def _optional_int(value: Any) -> int | None:
+    """Parse optional integer config values."""
+    if value is None:
+        return None
+    return int(value)

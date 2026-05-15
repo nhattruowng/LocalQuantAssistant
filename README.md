@@ -92,6 +92,54 @@ feature_toggles:
   volume: true
 ```
 
+## Train Model
+
+Training uses TP/SL first-touch labels and chronological splits to avoid time-series leakage:
+
+- train: first 70%
+- validation: next 15%
+- test: final 15%
+- no shuffle
+
+Run training from stored candles:
+
+```powershell
+python main.py train --symbol BTC/USDT --timeframe 15m
+```
+
+The training command:
+
+1. Loads candles from SQLite.
+2. Builds features without future data.
+3. Generates labels where only the label logic looks ahead.
+4. Drops censored tail rows that do not have the full configured lookahead horizon.
+5. Trains `XGBoostClassifier` when available, otherwise falls back to `RandomForestClassifier`.
+6. Saves the model as `.joblib` and metadata as `.metadata.json` under `models/`.
+
+Label settings live in `src/config/settings.yaml`:
+
+```yaml
+labeling:
+  lookahead_bars: 10
+  stop_loss_atr_multiplier: 1.5
+  take_profit_atr_multiplier: 3.0
+```
+
+Training settings:
+
+```yaml
+training:
+  train_ratio: 0.70
+  validation_ratio: 0.15
+  test_ratio: 0.15
+  random_state: 42
+  n_estimators: 300
+  max_depth: null
+  model_dir: models
+```
+
+Metadata includes symbol, timeframe, trained timestamp, selected feature columns, model type, metrics, confusion matrix, classification report, and feature importance.
+
 ## Test
 
 ```powershell
