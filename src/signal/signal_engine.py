@@ -60,7 +60,7 @@ class SignalEngine:
             features=features,
             probabilities=probabilities,
         )
-        strategy = self._strategies.get(context.regime_value())
+        strategy = self._strategy_for(context)
         if strategy is None:
             return self._wait(context, [f"No strategy for regime {context.regime_value()}."])
 
@@ -68,18 +68,10 @@ class SignalEngine:
         if decision.signal is SignalType.WAIT:
             return self._wait(context, decision.reasons, decision.strategy)
 
-        try:
-            risk_plan = self._risk_manager.build_plan(decision.signal, features)
-        except (KeyError, ValueError) as error:
-            return self._wait(
-                context,
-                [*decision.reasons, f"Risk plan failed: {error}."],
-                decision.strategy,
-            )
-
-        if risk_plan is None:
-            return self._wait(context, [*decision.reasons, "No risk plan was built."], decision.strategy)
-        if risk_plan.risk_reward < self._settings.signal.min_risk_reward:
+        risk_plan = self._risk_plan_for(context, decision, features)
+        if isinstance(risk_plan, TradeSetup):
+            return risk_plan
+        if not self._is_risk_acceptable(risk_plan):
             return self._wait(
                 context,
                 [
@@ -93,19 +85,56 @@ class SignalEngine:
                 risk_plan,
             )
 
+        return self._approved_setup(context, decision, risk_plan)
+
+    def _strategy_for(self, context: SignalContext) -> Strategy | None:
+        """Return the strategy for the current market regime."""
+        return self._strategies.get(context.regime_value())
+
+    def _risk_plan_for(
+        self,
+        context: SignalContext,
+        decision: StrategyDecision,
+        features: Mapping[str, float],
+    ) -> RiskPlan | TradeSetup:
+        """Build a risk plan or a WAIT setup when risk planning fails."""
+        try:
+            risk_plan = self._risk_manager.build_plan(decision.signal, features)
+        except (KeyError, ValueError) as error:
+            return self._wait(
+                context,
+                [*decision.reasons, f"Risk plan failed: {error}."],
+                decision.strategy,
+            )
+
+        if risk_plan is None:
+            return self._wait(context, [*decision.reasons, "No risk plan was built."], decision.strategy)
+        return risk_plan
+
+    def _is_risk_acceptable(self, risk_plan: RiskPlan) -> bool:
+        """Return True when risk/reward passes the configured gate."""
+        return risk_plan.risk_reward >= self._settings.signal.min_risk_reward
+
+    def _approved_setup(
+        self,
+        context: SignalContext,
+        decision: StrategyDecision,
+        risk_plan: RiskPlan,
+    ) -> TradeSetup:
+        """Create an actionable setup after strategy and risk checks pass."""
         confidence = self._score(decision, risk_plan)
         self._logger.info(
             "Signal generated: symbol=%s timeframe=%s signal=%s strategy=%s confidence=%.4f",
-            symbol,
-            timeframe,
+            context.symbol,
+            context.timeframe,
             decision.signal.value,
             decision.strategy.value,
             confidence,
         )
         return TradeSetup(
-            symbol=symbol,
-            timeframe=timeframe,
-            timestamp=timestamp,
+            symbol=context.symbol,
+            timeframe=context.timeframe,
+            timestamp=context.timestamp,
             market_regime=context.regime_value(),
             signal=decision.signal,
             strategy=decision.strategy,

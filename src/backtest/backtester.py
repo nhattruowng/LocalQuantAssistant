@@ -47,6 +47,25 @@ class RuleOnlyProbabilityProvider:
         return {"BUY": 0.15, "SELL": 0.15, "WAIT": 0.70}
 
 
+@dataclass(frozen=True)
+class ExitSimulation:
+    """Exit information for one simulated trade."""
+
+    raw_exit_price: float
+    close_index: int
+    result: TradeResult
+
+
+@dataclass(frozen=True)
+class TradeCost:
+    """Cost and PnL breakdown for one simulated trade."""
+
+    gross_pnl: float
+    fees: float
+    slippage: float
+    net_pnl: float
+
+
 class ModelProbabilityProvider:
     """Probability provider backed by a saved sklearn-like model."""
 
@@ -174,57 +193,24 @@ class Backtester:
             self._settings.backtest.slippage_rate,
         )
         position_size = float(setup.position_size or 0.0)
-        max_close_index = min(
-            signal_index + self._settings.backtest.max_holding_bars,
-            len(data) - 1,
-        )
-        exit_raw = float(data.iloc[max_close_index]["close"])
-        close_index = max_close_index
-        result = TradeResult.TIMEOUT
-
-        for index in range(signal_index + 1, max_close_index + 1):
-            row = data.iloc[index]
-            high = float(row["high"])
-            low = float(row["low"])
-            if setup.signal is SignalType.BUY:
-                if low <= setup.stop_loss:
-                    exit_raw = setup.stop_loss
-                    close_index = index
-                    result = TradeResult.LOSS
-                    break
-                if high >= setup.take_profit_2:
-                    exit_raw = setup.take_profit_2
-                    close_index = index
-                    result = TradeResult.WIN
-                    break
-            else:
-                if high >= setup.stop_loss:
-                    exit_raw = setup.stop_loss
-                    close_index = index
-                    result = TradeResult.LOSS
-                    break
-                if low <= setup.take_profit_2:
-                    exit_raw = setup.take_profit_2
-                    close_index = index
-                    result = TradeResult.WIN
-                    break
+        exit_simulation = self._find_exit(data, signal_index, setup)
 
         exit_fill = _apply_exit_slippage(
-            exit_raw,
+            exit_simulation.raw_exit_price,
             setup.signal,
             self._settings.backtest.slippage_rate,
         )
-        gross_pnl = _gross_pnl(setup.signal, entry_fill, exit_fill, position_size)
-        entry_fee = abs(entry_fill * position_size) * self._settings.backtest.fee_rate
-        exit_fee = abs(exit_fill * position_size) * self._settings.backtest.fee_rate
-        fees = entry_fee + exit_fee
-        slippage_cost = (
-            abs(entry_fill - entry_raw) * position_size
-            + abs(exit_fill - exit_raw) * position_size
+        cost = self._calculate_trade_cost(
+            setup=setup,
+            position_size=position_size,
+            raw_entry=entry_raw,
+            entry_fill=entry_fill,
+            raw_exit=exit_simulation.raw_exit_price,
+            exit_fill=exit_fill,
         )
-        pnl = gross_pnl - fees
+        result = exit_simulation.result
         if result is TradeResult.TIMEOUT:
-            result = _timeout_result(pnl)
+            result = _timeout_result(cost.net_pnl)
 
         return (
             Trade(
@@ -240,17 +226,83 @@ class Backtester:
                 take_profit_2=setup.take_profit_2,
                 exit_price=exit_fill,
                 position_size=position_size,
-                gross_pnl=gross_pnl,
-                fees=fees,
-                slippage=slippage_cost,
-                pnl=pnl,
+                gross_pnl=cost.gross_pnl,
+                fees=cost.fees,
+                slippage=cost.slippage,
+                pnl=cost.net_pnl,
                 risk_reward=float(setup.risk_reward or 0.0),
                 result=result,
                 confidence=setup.confidence,
                 reasons=setup.reasons,
             ),
-            close_index,
+            exit_simulation.close_index,
         )
+
+    def _find_exit(
+        self,
+        data: pd.DataFrame,
+        signal_index: int,
+        setup: TradeSetup,
+    ) -> ExitSimulation:
+        """Find the first conservative TP/SL/timeout exit."""
+        max_close_index = min(
+            signal_index + self._settings.backtest.max_holding_bars,
+            len(data) - 1,
+        )
+        for index in range(signal_index + 1, max_close_index + 1):
+            outcome = _bar_exit(setup, data.iloc[index])
+            if outcome is not None:
+                raw_exit_price, result = outcome
+                return ExitSimulation(raw_exit_price, index, result)
+        return ExitSimulation(
+            raw_exit_price=float(data.iloc[max_close_index]["close"]),
+            close_index=max_close_index,
+            result=TradeResult.TIMEOUT,
+        )
+
+    def _calculate_trade_cost(
+        self,
+        setup: TradeSetup,
+        position_size: float,
+        raw_entry: float,
+        entry_fill: float,
+        raw_exit: float,
+        exit_fill: float,
+    ) -> TradeCost:
+        """Calculate PnL, fees, and slippage cost."""
+        gross_pnl = _gross_pnl(setup.signal, entry_fill, exit_fill, position_size)
+        fees = (
+            abs(entry_fill * position_size) * self._settings.backtest.fee_rate
+            + abs(exit_fill * position_size) * self._settings.backtest.fee_rate
+        )
+        slippage = (
+            abs(entry_fill - raw_entry) * position_size
+            + abs(exit_fill - raw_exit) * position_size
+        )
+        return TradeCost(
+            gross_pnl=gross_pnl,
+            fees=fees,
+            slippage=slippage,
+            net_pnl=gross_pnl - fees,
+        )
+
+
+def _bar_exit(setup: TradeSetup, row: pd.Series) -> tuple[float, TradeResult] | None:
+    """Return conservative exit for a candle if TP/SL is touched."""
+    high = float(row["high"])
+    low = float(row["low"])
+    if setup.signal is SignalType.BUY:
+        if low <= setup.stop_loss:
+            return setup.stop_loss, TradeResult.LOSS
+        if high >= setup.take_profit_2:
+            return setup.take_profit_2, TradeResult.WIN
+        return None
+
+    if high >= setup.stop_loss:
+        return setup.stop_loss, TradeResult.LOSS
+    if low <= setup.take_profit_2:
+        return setup.take_profit_2, TradeResult.WIN
+    return None
 
 
 def _apply_entry_slippage(price: float, signal: SignalType, slippage_rate: float) -> float:

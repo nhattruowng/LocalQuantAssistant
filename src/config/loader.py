@@ -64,7 +64,7 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
     resolved_database_path = _resolve_path(database_path or "data/localquant.db", base_dir)
     model_path = model_config.get("path")
 
-    return Settings(
+    settings = Settings(
         app=AppSettings(
             name=app_config.get("name", "LocalQuant Assistant"),
             environment=os.getenv("LOCALQUANT_ENV", app_config.get("environment", "local")),
@@ -234,6 +234,8 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
             output_dir=_resolve_path(backtest_config.get("output_dir", "data/backtest"), base_dir),
         ),
     )
+    _validate_settings(settings)
+    return settings
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
@@ -332,3 +334,24 @@ def _optional_int(value: Any) -> int | None:
     if value is None:
         return None
     return int(value)
+
+
+def _validate_settings(settings: Settings) -> None:
+    """Validate cross-section settings that can silently break workflows."""
+    split_total = (
+        settings.training.train_ratio
+        + settings.training.validation_ratio
+        + settings.training.test_ratio
+    )
+    if abs(split_total - 1.0) > 1e-9:
+        raise ValueError("Training split ratios must sum to 1.0.")
+    if settings.training.train_ratio <= 0 or settings.training.validation_ratio <= 0:
+        raise ValueError("Training and validation ratios must be positive.")
+    if settings.training.test_ratio <= 0:
+        raise ValueError("Test ratio must be positive.")
+    if settings.backtest.fee_rate < 0 or settings.backtest.slippage_rate < 0:
+        raise ValueError("Backtest fee and slippage rates must be non-negative.")
+    if settings.backtest.max_holding_bars <= 0:
+        raise ValueError("Backtest max_holding_bars must be positive.")
+    if settings.risk.account_balance < 0 or settings.risk.risk_per_trade_pct < 0:
+        raise ValueError("Risk account balance and risk percent must be non-negative.")
