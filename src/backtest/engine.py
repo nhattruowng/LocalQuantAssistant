@@ -1,14 +1,7 @@
-"""Backtest engine contracts."""
+"""Backward-compatible exports for backtesting."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from backtest.models import BacktestReport as BacktestResult
 
-
-@dataclass(frozen=True)
-class BacktestResult:
-    """Summary metrics for a completed backtest."""
-
-    total_trades: int
-    win_rate: float
-    max_drawdown: float
+__all__ = ["BacktestResult"]

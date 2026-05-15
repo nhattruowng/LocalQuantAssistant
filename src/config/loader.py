@@ -13,6 +13,7 @@ except ModuleNotFoundError:  # pragma: no cover - exercised only without PyYAML
 
 from config.settings import (
     AppSettings,
+    BacktestSettings,
     CollectorSettings,
     DatabaseSettings,
     DataSettings,
@@ -56,6 +57,7 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
     signal_config = raw_config.get("signal", {})
     labeling_config = raw_config.get("labeling", {})
     training_config = raw_config.get("training", {})
+    backtest_config = raw_config.get("backtest", {})
 
     database_path = os.getenv("LOCALQUANT_DB_PATH", database_config.get("path"))
     log_level = os.getenv("LOG_LEVEL", logging_config.get("level", "INFO"))
@@ -221,6 +223,15 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
             n_estimators=int(training_config.get("n_estimators", 300)),
             max_depth=_optional_int(training_config.get("max_depth", None)),
             model_dir=_resolve_path(training_config.get("model_dir", "models"), base_dir),
+        ),
+        backtest=BacktestSettings(
+            fee_rate=float(backtest_config.get("fee_rate", 0.001)),
+            slippage_rate=float(backtest_config.get("slippage_rate", 0.0005)),
+            cooldown_bars_after_loss=int(
+                backtest_config.get("cooldown_bars_after_loss", 3)
+            ),
+            max_holding_bars=int(backtest_config.get("max_holding_bars", 10)),
+            output_dir=_resolve_path(backtest_config.get("output_dir", "data/backtest"), base_dir),
         ),
     )
 

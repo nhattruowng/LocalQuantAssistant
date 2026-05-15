@@ -327,3 +327,52 @@ Example output:
   "risk_notes": []
 }
 ```
+
+## Backtesting
+
+The backtester replays historical feature rows candle by candle. At each candle it reads the current feature row, current market regime, model probabilities, and then asks `SignalEngine` for a setup. It does not open more than one trade at the same time.
+
+Run a backtest:
+
+```powershell
+python main.py backtest --symbol BTC/USDT --timeframe 15m --model models/BTC_USDT_15m_20260101T000000Z.joblib
+```
+
+If the metadata file is not next to the model, pass it explicitly:
+
+```powershell
+python main.py backtest --symbol BTC/USDT --timeframe 15m --model models/model.joblib --metadata models/model.metadata.json
+```
+
+The command runs both:
+
+- `rule_only`: deterministic probabilities from regime and indicators.
+- `ml_enhanced`: probabilities from the saved model.
+
+Backtest assumptions:
+
+- A signal is generated at candle close.
+- TP/SL simulation starts from the next candle.
+- If TP and SL are touched in the same candle, conservative mode counts SL first.
+- Fees and slippage are configurable.
+- After a losing trade, cooldown waits the configured number of candles.
+- No overlapping positions in the MVP.
+
+Backtest config:
+
+```yaml
+backtest:
+  fee_rate: 0.001
+  slippage_rate: 0.0005
+  cooldown_bars_after_loss: 3
+  max_holding_bars: 10
+  output_dir: data/backtest
+```
+
+Outputs:
+
+- trades CSV
+- summary JSON
+- `BacktestReport` object for dashboard integration
+
+Metrics include total trades, winrate, gross profit/loss, net profit, profit factor, max drawdown, average win/loss, expectancy, average risk/reward, and win/loss streaks.

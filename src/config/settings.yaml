@@ -99,3 +99,10 @@ training:
   n_estimators: 300
   max_depth: null
   model_dir: models
+
+backtest:
+  fee_rate: 0.001
+  slippage_rate: 0.0005
+  cooldown_bars_after_loss: 3
+  max_holding_bars: 10
+  output_dir: data/backtest

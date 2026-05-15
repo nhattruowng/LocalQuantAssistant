@@ -161,6 +161,17 @@ class TrainingSettings:
 
 
 @dataclass(frozen=True)
+class BacktestSettings:
+    """Backtesting execution and cost settings."""
+
+    fee_rate: float
+    slippage_rate: float
+    cooldown_bars_after_loss: int
+    max_holding_bars: int
+    output_dir: Path
+
+
+@dataclass(frozen=True)
 class Settings:
     """Root application settings."""
 
@@ -177,3 +188,4 @@ class Settings:
     signal: SignalSettings
     labeling: LabelingSettings
     training: TrainingSettings
+    backtest: BacktestSettings
