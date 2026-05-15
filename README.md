@@ -61,6 +61,37 @@ python scripts/collect_market_data.py --symbol BTC/USDT --timeframe 1h
 
 Candles are saved to the `candles` table with a unique key on `(symbol, timeframe, timestamp)`, so reruns do not duplicate rows.
 
+## Build Features
+
+After candles are collected, build technical features from SQLite and export them to `data/processed`:
+
+```powershell
+python scripts/build_features.py --symbol BTC/USDT --timeframe 1h
+```
+
+Use a custom CSV target:
+
+```powershell
+python scripts/build_features.py --symbol BTC/USDT --timeframe 1h --output data/processed/btc_1h_features.csv
+```
+
+By default, warmup rows with rolling-indicator NaNs are dropped. Keep them for inspection:
+
+```powershell
+python scripts/build_features.py --symbol BTC/USDT --timeframe 1h --keep-warmup
+```
+
+Feature groups can be enabled or disabled in `src/config/settings.yaml`:
+
+```yaml
+feature_toggles:
+  price_action: true
+  trend: true
+  momentum: true
+  volatility: true
+  volume: true
+```
+
 ## Test
 
 ```powershell
@@ -147,3 +178,14 @@ Agents:
 - `ExplanationAgent`: creates a template-based explanation, designed to be replaceable by a local LLM later.
 
 The orchestrator is intentionally conservative: if an agent raises a pipeline error, the final setup becomes `WAIT`.
+
+## Feature Engineering
+
+The feature module is vectorized with pandas and avoids future-data leakage by using trailing `rolling`, `shift`, `diff`, `pct_change`, and `ewm` calculations.
+
+Files:
+
+- `features/price_action.py`: returns, candle body, range, and wick features.
+- `features/indicators.py`: EMA, RSI, MACD, ATR, Bollinger, and volume features.
+- `features/feature_builder.py`: composes enabled feature groups.
+- `features/feature_service.py`: reads candles from SQLite and exports processed CSV files.

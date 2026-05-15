@@ -57,6 +57,19 @@ class FeatureSettings:
     slow_ma_window: int
     volatility_window: int
     breakout_lookback: int
+    output_dir: Path
+    drop_warmup_rows: bool
+
+
+@dataclass(frozen=True)
+class FeatureToggleSettings:
+    """Feature group toggle settings."""
+
+    price_action: bool
+    trend: bool
+    momentum: bool
+    volatility: bool
+    volume: bool
 
 
 @dataclass(frozen=True)
@@ -106,6 +119,7 @@ class Settings:
     data: DataSettings
     collector: CollectorSettings
     features: FeatureSettings
+    feature_toggles: FeatureToggleSettings
     market_regime: MarketRegimeSettings
     model: ModelSettings
     risk: RiskSettings

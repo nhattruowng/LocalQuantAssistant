@@ -1,12 +1,17 @@
-"""Feature builder contracts."""
+"""Backward-compatible imports for feature building."""
 
 from __future__ import annotations
 
-from typing import Mapping
+from features.feature_builder import (
+    ALL_FEATURE_COLUMNS,
+    REQUIRED_CANDLE_COLUMNS,
+    FeatureBuilder,
+    build_basic_features,
+)
 
-from domain.entities import MarketSnapshot
-
-
-def build_basic_features(snapshot: MarketSnapshot) -> Mapping[str, float]:
-    """Build a small baseline feature set from a market snapshot."""
-    return {"close_price": snapshot.close_price}
+__all__ = [
+    "ALL_FEATURE_COLUMNS",
+    "REQUIRED_CANDLE_COLUMNS",
+    "FeatureBuilder",
+    "build_basic_features",
+]

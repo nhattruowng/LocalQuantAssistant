@@ -17,6 +17,7 @@ from config.settings import (
     DatabaseSettings,
     DataSettings,
     FeatureSettings,
+    FeatureToggleSettings,
     LoggingSettings,
     MarketRegimeSettings,
     ModelSettings,
@@ -46,6 +47,7 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
     data_config = raw_config.get("data", {})
     collector_config = raw_config.get("collector", {})
     features_config = raw_config.get("features", {})
+    feature_toggles_config = raw_config.get("feature_toggles", {})
     regime_config = raw_config.get("market_regime", {})
     model_config = raw_config.get("model", {})
     risk_config = raw_config.get("risk", {})
@@ -85,6 +87,18 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
             slow_ma_window=int(features_config.get("slow_ma_window", 30)),
             volatility_window=int(features_config.get("volatility_window", 14)),
             breakout_lookback=int(features_config.get("breakout_lookback", 20)),
+            output_dir=_resolve_path(
+                features_config.get("output_dir", "data/processed"),
+                base_dir,
+            ),
+            drop_warmup_rows=bool(features_config.get("drop_warmup_rows", True)),
+        ),
+        feature_toggles=FeatureToggleSettings(
+            price_action=bool(feature_toggles_config.get("price_action", True)),
+            trend=bool(feature_toggles_config.get("trend", True)),
+            momentum=bool(feature_toggles_config.get("momentum", True)),
+            volatility=bool(feature_toggles_config.get("volatility", True)),
+            volume=bool(feature_toggles_config.get("volume", True)),
         ),
         market_regime=MarketRegimeSettings(
             trend_strength_threshold=float(

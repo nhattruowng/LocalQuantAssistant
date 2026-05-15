@@ -26,6 +26,15 @@ features:
   slow_ma_window: 30
   volatility_window: 14
   breakout_lookback: 20
+  output_dir: data/processed
+  drop_warmup_rows: true
+
+feature_toggles:
+  price_action: true
+  trend: true
+  momentum: true
+  volatility: true
+  volume: true
 
 market_regime:
   trend_strength_threshold: 0.01
