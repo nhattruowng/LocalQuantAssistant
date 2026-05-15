@@ -33,6 +33,39 @@ python main.py
 
 The default command loads `src/config/settings.yaml`, initializes a local SQLite database, and prints a sample recommendation.
 
+## Run Dashboard
+
+Start the local Streamlit dashboard:
+
+```powershell
+streamlit run src/app/dashboard.py
+```
+
+The dashboard provides:
+
+- symbol and timeframe selection
+- market data update button
+- candlestick chart with EMA20, EMA50, EMA200
+- volume and RSI views
+- current market regime
+- BUY / SELL / WAIT setup card
+- entry, stop loss, TP1, TP2, risk/reward, position size
+- model metadata and feature importance
+- rule-only and ML-enhanced backtest reports
+- local signal history with filters
+
+If no candles exist yet, the dashboard shows:
+
+```text
+No data found. Please update market data first.
+```
+
+If no model metadata is available, the model tab shows:
+
+```text
+No model found. Please train a model first.
+```
+
 ## Run Market Data Collector
 
 The collector downloads OHLCV candles from Binance through `ccxt` and stores them in local SQLite. Configure defaults in `src/config/settings.yaml`:
