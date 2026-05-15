@@ -1,0 +1,41 @@
+app:
+  name: LocalQuant Assistant
+  environment: local
+
+database:
+  driver: sqlite
+  path: data/localquant.db
+
+logging:
+  level: INFO
+  serialize: false
+
+data:
+  min_bars: 60
+
+features:
+  fast_ma_window: 10
+  slow_ma_window: 30
+  volatility_window: 14
+  breakout_lookback: 20
+
+market_regime:
+  trend_strength_threshold: 0.01
+  high_volatility_threshold: 0.04
+  breakout_buffer_pct: 0.002
+
+model:
+  path: null
+  fallback_action_probability: 0.62
+  fallback_wait_probability: 0.23
+  fallback_opposite_probability: 0.15
+
+risk:
+  account_balance: 10000.0
+  risk_per_trade_pct: 0.01
+  stop_loss_pct: 0.01
+  take_profit_pct: 0.02
+
+signal:
+  min_confidence: 0.55
+  min_risk_reward: 1.5

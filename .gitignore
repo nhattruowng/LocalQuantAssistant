@@ -1,0 +1,78 @@
+# Byte-compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# Test, lint, and type-check caches
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Logs
+logs/
+*.log
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Local data artifacts
+data/raw/**
+data/processed/**
+data/backtest/**
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/backtest/.gitkeep
+
+# ML artifacts and experiment outputs
+models/**
+!models/.gitkeep
+*.pkl
+*.pickle
+*.joblib
+*.onnx
+*.h5
+*.hdf5
+*.pt
+*.pth
+*.ckpt
+mlruns/
+wandb/
+lightning_logs/
+
+# Streamlit runtime/cache
+.streamlit/cache/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

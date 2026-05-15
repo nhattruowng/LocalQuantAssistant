@@ -1,0 +1,1 @@
+"""LocalQuant Assistant source package."""
