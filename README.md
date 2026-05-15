@@ -262,3 +262,68 @@ Regime logic is rule-based and configurable in `src/config/settings.yaml`:
 - `UNKNOWN`: required indicators are missing or no rule matches.
 
 The detector is designed as a signal filter. It helps prevent ML predictions from being used blindly when the market structure does not support the setup.
+
+## Signal Engine, Strategy, And Risk
+
+The signal layer converts model probabilities into a clear `BUY`, `SELL`, or `WAIT` setup. It only produces recommendations and never executes trades.
+
+Inputs:
+
+- model probabilities: `BUY`, `SELL`, `WAIT`
+- market regime
+- technical feature row
+- volume confirmation
+- risk/reward plan
+
+Supported strategies:
+
+- `TREND_FOLLOWING`: used in `UPTREND` and `DOWNTREND`.
+- `BREAKOUT_CONFIRMATION`: used in `BREAKOUT_UP` and `BREAKOUT_DOWN`.
+- `MEAN_REVERSION`: used only in `SIDEWAY`.
+
+Risk logic:
+
+- BUY entry = close, stop = entry - `atr_14 * 1.5`, TP1 = entry + `atr_14 * 2`, TP2 = entry + `atr_14 * 3`.
+- SELL entry = close, stop = entry + `atr_14 * 1.5`, TP1 = entry - `atr_14 * 2`, TP2 = entry - `atr_14 * 3`.
+- Position size = `(account_balance * risk_percent) / abs(entry - stop_loss)`.
+- Risk/reward is calculated against TP2 and must pass the configured minimum.
+
+Confidence score:
+
+```text
+model_probability * 0.4
++ trend_score * 0.25
++ indicator_score * 0.2
++ volume_score * 0.1
++ rr_score * 0.05
+```
+
+Main files:
+
+- `signal/signal_engine.py`
+- `signal/models.py`
+- `risk/risk_manager.py`
+- `strategy/trend_following.py`
+- `strategy/breakout.py`
+- `strategy/mean_reversion.py`
+
+Example output:
+
+```json
+{
+  "symbol": "BTC/USDT",
+  "timeframe": "15m",
+  "market_regime": "UPTREND",
+  "signal": "BUY",
+  "strategy": "TREND_FOLLOWING",
+  "confidence": 0.88,
+  "entry": 65000,
+  "stop_loss": 64200,
+  "take_profit_1": 66600,
+  "take_profit_2": 67400,
+  "risk_reward": 2.0,
+  "position_size": 0.012,
+  "reasons": [],
+  "risk_notes": []
+}
+```

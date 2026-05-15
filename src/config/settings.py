@@ -108,6 +108,9 @@ class RiskSettings:
     risk_per_trade_pct: float
     stop_loss_pct: float
     take_profit_pct: float
+    stop_loss_atr_multiplier: float = 1.5
+    take_profit_1_atr_multiplier: float = 2.0
+    take_profit_2_atr_multiplier: float = 3.0
 
 
 @dataclass(frozen=True)
@@ -116,6 +119,23 @@ class SignalSettings:
 
     min_confidence: float
     min_risk_reward: float
+    trend_probability_threshold: float = 0.65
+    breakout_probability_threshold: float = 0.65
+    mean_reversion_probability_threshold: float = 0.60
+    ema_near_pct: float = 0.01
+    breakout_volume_ratio_threshold: float = 1.2
+    support_resistance_near_pct: float = 0.01
+    trend_buy_rsi_min: float = 40.0
+    trend_buy_rsi_max: float = 70.0
+    trend_sell_rsi_min: float = 30.0
+    trend_sell_rsi_max: float = 60.0
+    mean_reversion_buy_rsi_max: float = 35.0
+    mean_reversion_sell_rsi_min: float = 65.0
+    model_score_weight: float = 0.40
+    trend_score_weight: float = 0.25
+    indicator_score_weight: float = 0.20
+    volume_score_weight: float = 0.10
+    risk_reward_score_weight: float = 0.05
 
 
 @dataclass(frozen=True)

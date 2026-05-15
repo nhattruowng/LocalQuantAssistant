@@ -155,10 +155,54 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
             risk_per_trade_pct=float(risk_config.get("risk_per_trade_pct", 0.01)),
             stop_loss_pct=float(risk_config.get("stop_loss_pct", 0.01)),
             take_profit_pct=float(risk_config.get("take_profit_pct", 0.02)),
+            stop_loss_atr_multiplier=float(
+                risk_config.get("stop_loss_atr_multiplier", 1.5)
+            ),
+            take_profit_1_atr_multiplier=float(
+                risk_config.get("take_profit_1_atr_multiplier", 2.0)
+            ),
+            take_profit_2_atr_multiplier=float(
+                risk_config.get("take_profit_2_atr_multiplier", 3.0)
+            ),
         ),
         signal=SignalSettings(
             min_confidence=float(signal_config.get("min_confidence", 0.55)),
-            min_risk_reward=float(signal_config.get("min_risk_reward", 1.5)),
+            min_risk_reward=float(signal_config.get("min_risk_reward", 2.0)),
+            trend_probability_threshold=float(
+                signal_config.get("trend_probability_threshold", 0.65)
+            ),
+            breakout_probability_threshold=float(
+                signal_config.get("breakout_probability_threshold", 0.65)
+            ),
+            mean_reversion_probability_threshold=float(
+                signal_config.get("mean_reversion_probability_threshold", 0.60)
+            ),
+            ema_near_pct=float(signal_config.get("ema_near_pct", 0.01)),
+            breakout_volume_ratio_threshold=float(
+                signal_config.get("breakout_volume_ratio_threshold", 1.2)
+            ),
+            support_resistance_near_pct=float(
+                signal_config.get("support_resistance_near_pct", 0.01)
+            ),
+            trend_buy_rsi_min=float(signal_config.get("trend_buy_rsi_min", 40.0)),
+            trend_buy_rsi_max=float(signal_config.get("trend_buy_rsi_max", 70.0)),
+            trend_sell_rsi_min=float(signal_config.get("trend_sell_rsi_min", 30.0)),
+            trend_sell_rsi_max=float(signal_config.get("trend_sell_rsi_max", 60.0)),
+            mean_reversion_buy_rsi_max=float(
+                signal_config.get("mean_reversion_buy_rsi_max", 35.0)
+            ),
+            mean_reversion_sell_rsi_min=float(
+                signal_config.get("mean_reversion_sell_rsi_min", 65.0)
+            ),
+            model_score_weight=float(signal_config.get("model_score_weight", 0.40)),
+            trend_score_weight=float(signal_config.get("trend_score_weight", 0.25)),
+            indicator_score_weight=float(
+                signal_config.get("indicator_score_weight", 0.20)
+            ),
+            volume_score_weight=float(signal_config.get("volume_score_weight", 0.10)),
+            risk_reward_score_weight=float(
+                signal_config.get("risk_reward_score_weight", 0.05)
+            ),
         ),
         labeling=LabelingSettings(
             lookahead_bars=int(labeling_config.get("lookahead_bars", 10)),
