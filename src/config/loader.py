@@ -13,6 +13,7 @@ except ModuleNotFoundError:  # pragma: no cover - exercised only without PyYAML
 
 from config.settings import (
     AppSettings,
+    CollectorSettings,
     DatabaseSettings,
     DataSettings,
     FeatureSettings,
@@ -43,6 +44,7 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
     database_config = raw_config.get("database", {})
     logging_config = raw_config.get("logging", {})
     data_config = raw_config.get("data", {})
+    collector_config = raw_config.get("collector", {})
     features_config = raw_config.get("features", {})
     regime_config = raw_config.get("market_regime", {})
     model_config = raw_config.get("model", {})
@@ -69,6 +71,14 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
         ),
         data=DataSettings(
             min_bars=int(data_config.get("min_bars", 60)),
+        ),
+        collector=CollectorSettings(
+            exchange=str(collector_config.get("exchange", "binance")),
+            symbols=_as_tuple(collector_config.get("symbols", ["BTC/USDT", "ETH/USDT"])),
+            timeframes=_as_tuple(collector_config.get("timeframes", ["15m", "1h", "4h"])),
+            candles_limit=int(collector_config.get("candles_limit", 200)),
+            retry_attempts=int(collector_config.get("retry_attempts", 3)),
+            retry_delay_seconds=float(collector_config.get("retry_delay_seconds", 1.0)),
         ),
         features=FeatureSettings(
             fast_ma_window=int(features_config.get("fast_ma_window", 10)),
@@ -162,6 +172,9 @@ def _parse_scalar(value: str) -> Any:
         return False
     if normalized.lower() in {"null", "none", ""}:
         return None
+    if normalized.startswith("[") and normalized.endswith("]"):
+        values = normalized.removeprefix("[").removesuffix("]").split(",")
+        return [_parse_scalar(value.strip()) for value in values if value.strip()]
     try:
         return int(normalized)
     except ValueError:
@@ -187,3 +200,12 @@ def _resolve_path(path_value: str | Path, base_dir: Path) -> Path:
     if path.is_absolute():
         return path
     return base_dir / path
+
+
+def _as_tuple(value: Any) -> tuple[str, ...]:
+    """Convert a YAML scalar or list into a tuple of strings."""
+    if isinstance(value, str):
+        return (value,)
+    if isinstance(value, list | tuple):
+        return tuple(str(item) for item in value)
+    raise ValueError(f"Expected string or list value, got {type(value).__name__}.")

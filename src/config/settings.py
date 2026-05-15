@@ -38,6 +38,18 @@ class DataSettings:
 
 
 @dataclass(frozen=True)
+class CollectorSettings:
+    """Market data collector settings."""
+
+    exchange: str
+    symbols: tuple[str, ...]
+    timeframes: tuple[str, ...]
+    candles_limit: int
+    retry_attempts: int
+    retry_delay_seconds: float
+
+
+@dataclass(frozen=True)
 class FeatureSettings:
     """Feature engineering settings."""
 
@@ -92,6 +104,7 @@ class Settings:
     database: DatabaseSettings
     logging: LoggingSettings
     data: DataSettings
+    collector: CollectorSettings
     features: FeatureSettings
     market_regime: MarketRegimeSettings
     model: ModelSettings

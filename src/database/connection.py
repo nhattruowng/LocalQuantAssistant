@@ -40,18 +40,9 @@ class SQLiteDatabase:
 
     def initialize(self) -> None:
         """Create local tables if they do not exist."""
-        self.execute(
-            """
-            CREATE TABLE IF NOT EXISTS setup_recommendations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                symbol TEXT NOT NULL,
-                action TEXT NOT NULL,
-                confidence REAL NOT NULL,
-                rationale TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            )
-            """
-        )
+        schema_path = Path(__file__).resolve().parent / "schema.sql"
+        self.connection.executescript(schema_path.read_text(encoding="utf-8"))
+        self.connection.commit()
 
     def execute(self, query: str, parameters: tuple[Any, ...] = ()) -> sqlite3.Cursor:
         """Execute a SQLite statement and commit it."""

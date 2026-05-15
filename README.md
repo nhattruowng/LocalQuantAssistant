@@ -33,6 +33,34 @@ python main.py
 
 The default command loads `src/config/settings.yaml`, initializes a local SQLite database, and prints a sample recommendation.
 
+## Run Market Data Collector
+
+The collector downloads OHLCV candles from Binance through `ccxt` and stores them in local SQLite. Configure defaults in `src/config/settings.yaml`:
+
+```yaml
+collector:
+  exchange: binance
+  symbols: [BTC/USDT, ETH/USDT]
+  timeframes: [15m, 1h, 4h]
+  candles_limit: 200
+  retry_attempts: 3
+  retry_delay_seconds: 1.0
+```
+
+Install dependencies, then run:
+
+```powershell
+python scripts/collect_market_data.py
+```
+
+Run one symbol/timeframe:
+
+```powershell
+python scripts/collect_market_data.py --symbol BTC/USDT --timeframe 1h
+```
+
+Candles are saved to the `candles` table with a unique key on `(symbol, timeframe, timestamp)`, so reruns do not duplicate rows.
+
 ## Test
 
 ```powershell
@@ -71,10 +99,21 @@ The code follows a layered style:
 
 - `domain`: business concepts such as `TradingAction`, `MarketSnapshot`, and `SetupRecommendation`.
 - `application`: orchestration in `RecommendationService`.
-- `infrastructure`: YAML config, logging, SQLite connection, repositories.
+- `infrastructure`: YAML config, logging, SQLite connection, repositories, market data collectors.
 - `UI`: CLI entrypoint in `src/app/cli.py` and `main.py`.
 
 SQLite is the default database. PostgreSQL can be added later by implementing the same database/repository interfaces and selecting it from YAML config.
+
+## Data Collector Architecture
+
+Market data collection is interface-based:
+
+- `BaseMarketDataCollector`: collector contract for OHLCV sources.
+- `BinanceCollector`: `ccxt` implementation for Binance.
+- `CandleRepository`: SQLite persistence with deduplication.
+- `MarketDataUpdateService`: coordinates latest timestamp lookup, download, validation, and insert.
+
+The design leaves room for future `YahooFinanceCollector`, `MT5Collector`, or `CsvCollector` implementations without changing downstream services.
 
 ## Agent Architecture
 

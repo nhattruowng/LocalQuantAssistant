@@ -9,6 +9,20 @@ from domain.enums import MarketRegime, StrategyType, TradingAction
 
 
 @dataclass(frozen=True)
+class Candle:
+    """Persistable OHLCV candle from a market data source."""
+
+    symbol: str
+    timeframe: str
+    timestamp: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+
+
+@dataclass(frozen=True)
 class OHLCVBar:
     """Single OHLCV candle used by the analysis pipeline."""
 
