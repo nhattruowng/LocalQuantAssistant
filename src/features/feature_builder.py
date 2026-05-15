@@ -6,7 +6,7 @@ from typing import Mapping
 
 import pandas as pd
 
-from config.settings import FeatureToggleSettings
+from config.settings import FeatureToggleSettings, MarketRegimeSettings
 from domain.entities import MarketSnapshot
 from features.indicators import (
     MOMENTUM_COLUMNS,
@@ -19,6 +19,7 @@ from features.indicators import (
     add_volume_features,
 )
 from features.price_action import PRICE_ACTION_COLUMNS, add_price_action_features
+from regime.regime_detector import REGIME_OUTPUT_COLUMNS, MarketRegimeDetector
 
 
 REQUIRED_CANDLE_COLUMNS = ["timestamp", "open", "high", "low", "close", "volume"]
@@ -28,14 +29,22 @@ ALL_FEATURE_COLUMNS = [
     *MOMENTUM_COLUMNS,
     *VOLATILITY_COLUMNS,
     *VOLUME_COLUMNS,
+    *REGIME_OUTPUT_COLUMNS,
 ]
 
 
 class FeatureBuilder:
     """Builds ML-ready technical features from candle DataFrames."""
 
-    def __init__(self, toggles: FeatureToggleSettings) -> None:
+    def __init__(
+        self,
+        toggles: FeatureToggleSettings,
+        regime_settings: MarketRegimeSettings | None = None,
+    ) -> None:
         self._toggles = toggles
+        self._regime_detector = (
+            MarketRegimeDetector(regime_settings) if regime_settings else None
+        )
 
     def build(self, candles: pd.DataFrame, drop_warmup_rows: bool = False) -> pd.DataFrame:
         """Return a new DataFrame with enabled feature groups added."""
@@ -53,10 +62,17 @@ class FeatureBuilder:
             features = add_volatility_features(features)
         if self._toggles.volume:
             features = add_volume_features(features)
+        if self._regime_detector is not None:
+            features = self._regime_detector.detect(features)
 
         if drop_warmup_rows:
             enabled_columns = [column for column in ALL_FEATURE_COLUMNS if column in features]
-            features = features.dropna(subset=enabled_columns).reset_index(drop=True)
+            numeric_columns = [
+                column
+                for column in enabled_columns
+                if column not in {"market_regime", "regime_reason"}
+            ]
+            features = features.dropna(subset=numeric_columns).reset_index(drop=True)
         return features
 
     def _validate_input(self, candles: pd.DataFrame) -> None:

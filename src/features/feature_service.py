@@ -24,7 +24,7 @@ class FeatureService:
     ) -> None:
         self._repository = repository
         self._settings = settings
-        self._builder = FeatureBuilder(settings.feature_toggles)
+        self._builder = FeatureBuilder(settings.feature_toggles, settings.market_regime)
         self._logger = logger or logging.getLogger("localquant.features")
 
     def build_features(

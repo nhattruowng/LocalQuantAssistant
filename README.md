@@ -189,3 +189,28 @@ Files:
 - `features/indicators.py`: EMA, RSI, MACD, ATR, Bollinger, and volume features.
 - `features/feature_builder.py`: composes enabled feature groups.
 - `features/feature_service.py`: reads candles from SQLite and exports processed CSV files.
+
+## Market Regime Detection
+
+`MarketRegimeDetector` adds market state columns to the feature dataset:
+
+- `market_regime`
+- `trend_score`
+- `volatility_score`
+- `breakout_score`
+- `rolling_high_20`
+- `rolling_low_20`
+- `regime_reason`
+
+Regime logic is rule-based and configurable in `src/config/settings.yaml`:
+
+- `UPTREND`: `ema_20 > ema_50`, `close > ema_20`, and positive `ema_20_slope`.
+- `DOWNTREND`: `ema_20 < ema_50`, `close < ema_20`, and negative `ema_20_slope`.
+- `SIDEWAY`: narrow EMA spread, low Bollinger width, and low/medium ATR percent.
+- `BREAKOUT_UP`: close breaks trailing resistance with volume and ATR confirmation.
+- `BREAKOUT_DOWN`: close breaks trailing support with volume and ATR confirmation.
+- `HIGH_VOLATILITY`: ATR percent is above the configured trailing percentile.
+- `LOW_VOLATILITY`: ATR percent is below the configured trailing percentile.
+- `UNKNOWN`: required indicators are missing or no rule matches.
+
+The detector is designed as a signal filter. It helps prevent ML predictions from being used blindly when the market structure does not support the setup.

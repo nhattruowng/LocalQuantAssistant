@@ -40,6 +40,15 @@ market_regime:
   trend_strength_threshold: 0.01
   high_volatility_threshold: 0.04
   breakout_buffer_pct: 0.002
+  sideway_trend_threshold: 0.005
+  sideway_bollinger_width_threshold: 0.04
+  sideway_atr_percent_threshold: 0.02
+  breakout_window: 20
+  breakout_volume_ratio_threshold: 1.5
+  breakout_atr_percent_threshold: 0.015
+  high_volatility_percentile: 0.8
+  low_volatility_percentile: 0.2
+  volatility_percentile_window: 100
 
 model:
   path: null

@@ -108,6 +108,31 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
                 regime_config.get("high_volatility_threshold", 0.04)
             ),
             breakout_buffer_pct=float(regime_config.get("breakout_buffer_pct", 0.002)),
+            sideway_trend_threshold=float(
+                regime_config.get("sideway_trend_threshold", 0.005)
+            ),
+            sideway_bollinger_width_threshold=float(
+                regime_config.get("sideway_bollinger_width_threshold", 0.04)
+            ),
+            sideway_atr_percent_threshold=float(
+                regime_config.get("sideway_atr_percent_threshold", 0.02)
+            ),
+            breakout_window=int(regime_config.get("breakout_window", 20)),
+            breakout_volume_ratio_threshold=float(
+                regime_config.get("breakout_volume_ratio_threshold", 1.5)
+            ),
+            breakout_atr_percent_threshold=float(
+                regime_config.get("breakout_atr_percent_threshold", 0.015)
+            ),
+            high_volatility_percentile=float(
+                regime_config.get("high_volatility_percentile", 0.8)
+            ),
+            low_volatility_percentile=float(
+                regime_config.get("low_volatility_percentile", 0.2)
+            ),
+            volatility_percentile_window=int(
+                regime_config.get("volatility_percentile_window", 100)
+            ),
         ),
         model=ModelSettings(
             path=_resolve_path(model_path, base_dir) if model_path else None,

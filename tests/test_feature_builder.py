@@ -10,7 +10,8 @@ from features.feature_builder import ALL_FEATURE_COLUMNS, FeatureBuilder
 
 
 def test_feature_builder_outputs_required_columns():
-    builder = FeatureBuilder(load_settings().feature_toggles)
+    settings = load_settings()
+    builder = FeatureBuilder(settings.feature_toggles, settings.market_regime)
     features = builder.build(_candles(260))
 
     missing = [column for column in ALL_FEATURE_COLUMNS if column not in features]
@@ -19,7 +20,8 @@ def test_feature_builder_outputs_required_columns():
 
 
 def test_feature_builder_does_not_mutate_raw_input():
-    builder = FeatureBuilder(load_settings().feature_toggles)
+    settings = load_settings()
+    builder = FeatureBuilder(settings.feature_toggles, settings.market_regime)
     raw = _candles(260)
     expected = raw.copy(deep=True)
 
@@ -29,7 +31,8 @@ def test_feature_builder_does_not_mutate_raw_input():
 
 
 def test_feature_builder_does_not_leak_future_data():
-    builder = FeatureBuilder(load_settings().feature_toggles)
+    settings = load_settings()
+    builder = FeatureBuilder(settings.feature_toggles, settings.market_regime)
     raw = _candles(260)
     check_index = 220
 
@@ -44,7 +47,8 @@ def test_feature_builder_does_not_leak_future_data():
 
 
 def test_feature_builder_can_drop_warmup_rows():
-    builder = FeatureBuilder(load_settings().feature_toggles)
+    settings = load_settings()
+    builder = FeatureBuilder(settings.feature_toggles, settings.market_regime)
 
     features = builder.build(_candles(260), drop_warmup_rows=True)
 

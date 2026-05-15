@@ -79,6 +79,15 @@ class MarketRegimeSettings:
     trend_strength_threshold: float
     high_volatility_threshold: float
     breakout_buffer_pct: float
+    sideway_trend_threshold: float
+    sideway_bollinger_width_threshold: float
+    sideway_atr_percent_threshold: float
+    breakout_window: int
+    breakout_volume_ratio_threshold: float
+    breakout_atr_percent_threshold: float
+    high_volatility_percentile: float
+    low_volatility_percentile: float
+    volatility_percentile_window: int
 
 
 @dataclass(frozen=True)
