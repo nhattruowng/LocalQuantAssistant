@@ -219,7 +219,7 @@ class Backtester:
                 direction=setup.signal,
                 strategy=setup.strategy,
                 opened_at=setup.timestamp,
-                closed_at=data.iloc[close_index]["timestamp"],
+                closed_at=data.iloc[exit_simulation.close_index]["timestamp"],
                 entry=entry_fill,
                 stop_loss=setup.stop_loss,
                 take_profit_1=float(setup.take_profit_1 or setup.take_profit_2),

@@ -55,6 +55,16 @@ def test_feature_builder_can_drop_warmup_rows():
     assert not features[ALL_FEATURE_COLUMNS].isna().any().any()
 
 
+def test_core_indicators_are_not_all_nan():
+    settings = load_settings()
+    builder = FeatureBuilder(settings.feature_toggles, settings.market_regime)
+
+    features = builder.build(_candles(260))
+
+    for column in ["ema_20", "ema_50", "ema_200", "rsi_14", "atr_14"]:
+        assert not features[column].isna().all()
+
+
 def _candles(rows: int) -> pd.DataFrame:
     """Build deterministic candle data for feature tests."""
     timestamps = pd.date_range("2026-01-01", periods=rows, freq="h", tz="UTC")

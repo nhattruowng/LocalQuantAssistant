@@ -39,6 +39,26 @@ def test_label_generator_marks_wait_when_stop_touches_first():
     assert labeled.loc[0, "label"] == TradingAction.WAIT.value
 
 
+def test_label_generator_marks_wait_when_no_tp_or_sl_touches():
+    generator = LabelGenerator(_settings())
+    features = _base_features()
+
+    labeled = generator.generate(features)
+
+    assert labeled.loc[0, "label"] == TradingAction.WAIT.value
+
+
+def test_label_generator_uses_conservative_wait_when_same_candle_hits_tp_and_sl():
+    generator = LabelGenerator(_settings())
+    features = _base_features()
+    features.loc[1, "high"] = 106.5
+    features.loc[1, "low"] = 96.5
+
+    labeled = generator.generate(features)
+
+    assert labeled.loc[0, "label"] == TradingAction.WAIT.value
+
+
 def test_label_generator_does_not_mutate_input():
     generator = LabelGenerator(_settings())
     features = _base_features()

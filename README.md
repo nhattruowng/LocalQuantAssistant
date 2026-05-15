@@ -175,8 +175,21 @@ Metadata includes symbol, timeframe, trained timestamp, selected feature columns
 
 ## Test
 
+Install dependencies first, then run the full local suite:
+
 ```powershell
 pytest
+```
+
+The tests use small deterministic fixtures and do not call Binance or any real external API. Coverage focuses on candle validation,
+SQLite de-duplication, feature generation without future leakage, regime detection, TP/SL labeling, risk sizing, signal decisions,
+and backtest accounting.
+
+Run one area when iterating:
+
+```powershell
+pytest tests/test_signal_engine.py
+pytest tests/test_backtester.py
 ```
 
 ## Project Structure
