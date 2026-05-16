@@ -172,6 +172,27 @@ class BacktestSettings:
 
 
 @dataclass(frozen=True)
+class NotificationSettings:
+    """Notification delivery settings."""
+
+    enabled: bool
+    telegram_bot_token: str | None
+    telegram_chat_id: str | None
+    min_confidence: float
+    min_risk_reward: float
+    cooldown_seconds: int
+    request_timeout_seconds: float
+
+
+@dataclass(frozen=True)
+class PaperTradingSettings:
+    """Paper trading simulation settings."""
+
+    enabled: bool
+    initial_balance: float
+
+
+@dataclass(frozen=True)
 class Settings:
     """Root application settings."""
 
@@ -189,3 +210,5 @@ class Settings:
     labeling: LabelingSettings
     training: TrainingSettings
     backtest: BacktestSettings
+    notification: NotificationSettings
+    paper_trading: PaperTradingSettings

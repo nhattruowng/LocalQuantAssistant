@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Protocol
 
 import pandas as pd
@@ -26,6 +27,13 @@ class ProbabilityProvider(Protocol):
         """Return probabilities keyed by BUY, SELL, and WAIT."""
 
 
+class BatchProbabilityProvider(ProbabilityProvider, Protocol):
+    """Probability provider that can score many feature rows at once."""
+
+    def predict_proba_batch(self, rows: pd.DataFrame) -> list[dict[str, float]]:
+        """Return one probability mapping per input row."""
+
+
 @dataclass
 class RuleOnlyProbabilityProvider:
     """Simple rule-only probabilities from regime and indicators."""
@@ -45,6 +53,26 @@ class RuleOnlyProbabilityProvider:
         if regime == MarketRegime.SIDEWAY.value and rsi > 65:
             return {"BUY": 0.10, "SELL": 0.62, "WAIT": 0.28}
         return {"BUY": 0.15, "SELL": 0.15, "WAIT": 0.70}
+
+    def predict_proba_batch(self, rows: pd.DataFrame) -> list[dict[str, float]]:
+        """Return deterministic probabilities for many rows using vectorized masks."""
+        result = pd.DataFrame(
+            {"BUY": 0.15, "SELL": 0.15, "WAIT": 0.70},
+            index=rows.index,
+        )
+        regime = _column_or_default(rows, "market_regime", MarketRegime.UNKNOWN.value).astype(str)
+        rsi = pd.to_numeric(_column_or_default(rows, "rsi_14", 50.0), errors="coerce").fillna(50.0)
+
+        up_mask = regime.isin([MarketRegime.UPTREND.value, MarketRegime.BREAKOUT_UP.value])
+        down_mask = regime.isin([MarketRegime.DOWNTREND.value, MarketRegime.BREAKOUT_DOWN.value])
+        sideway_buy_mask = (regime == MarketRegime.SIDEWAY.value) & (rsi < 35)
+        sideway_sell_mask = (regime == MarketRegime.SIDEWAY.value) & (rsi > 65)
+
+        result.loc[up_mask, ["BUY", "SELL", "WAIT"]] = [0.70, 0.10, 0.20]
+        result.loc[down_mask, ["BUY", "SELL", "WAIT"]] = [0.10, 0.70, 0.20]
+        result.loc[sideway_buy_mask, ["BUY", "SELL", "WAIT"]] = [0.62, 0.10, 0.28]
+        result.loc[sideway_sell_mask, ["BUY", "SELL", "WAIT"]] = [0.10, 0.62, 0.28]
+        return result.to_dict("records")
 
 
 @dataclass(frozen=True)
@@ -75,6 +103,16 @@ class ModelProbabilityProvider:
         self._model = model
         self._feature_columns = feature_columns
 
+    @property
+    def model(self) -> Any:
+        """Return the loaded model object."""
+        return self._model
+
+    @property
+    def feature_columns(self) -> list[str]:
+        """Return feature columns in model input order."""
+        return self._feature_columns
+
     @classmethod
     def from_files(
         cls,
@@ -96,10 +134,17 @@ class ModelProbabilityProvider:
 
     def predict_proba(self, row: pd.Series) -> dict[str, float]:
         """Return model probabilities for one feature row."""
-        x = pd.DataFrame([{column: row[column] for column in self._feature_columns}])
-        probabilities = self._model.predict_proba(x)[0]
+        return self.predict_proba_batch(pd.DataFrame([row]))[0]
+
+    def predict_proba_batch(self, rows: pd.DataFrame) -> list[dict[str, float]]:
+        """Return model probabilities for many feature rows in one model call."""
+        x = rows.loc[:, self._feature_columns]
+        probabilities = self._model.predict_proba(x)
         classes = getattr(self._model, "classes_", ["BUY", "SELL", "WAIT"])
-        return {str(label): float(probability) for label, probability in zip(classes, probabilities)}
+        return [
+            {str(label): float(probability) for label, probability in zip(classes, row)}
+            for row in probabilities
+        ]
 
 
 class Backtester:
@@ -123,13 +168,15 @@ class Backtester:
         probability_provider: ProbabilityProvider,
     ) -> BacktestReport:
         """Run a backtest over feature rows."""
+        started_at = perf_counter()
         self._validate_features(features)
         data = features.sort_values("timestamp").reset_index(drop=True)
+        probabilities_by_row = self._predict_probabilities(data, probability_provider)
         trades: list[Trade] = []
         index = 0
         while index < len(data) - 1:
             row = data.iloc[index]
-            probabilities = probability_provider.predict_proba(row)
+            probabilities = probabilities_by_row[index]
             setup = self._signal_engine.generate(
                 symbol=symbol,
                 timeframe=timeframe,
@@ -153,12 +200,32 @@ class Backtester:
 
         report = build_report(symbol, timeframe, probability_provider.mode, trades)
         self._logger.info(
-            "Backtest completed: mode=%s trades=%s net_profit=%.4f",
+            "Backtest completed: mode=%s rows=%s trades=%s net_profit=%.4f elapsed_ms=%.2f",
             probability_provider.mode,
+            len(data),
             report.total_trades,
             report.net_profit,
+            (perf_counter() - started_at) * 1000,
         )
         return report
+
+    def _predict_probabilities(
+        self,
+        data: pd.DataFrame,
+        probability_provider: ProbabilityProvider,
+    ) -> list[dict[str, float]]:
+        """Score rows once before the trade loop, using batch inference when available."""
+        batch_predict = getattr(probability_provider, "predict_proba_batch", None)
+        if callable(batch_predict):
+            probabilities = list(batch_predict(data))
+        else:
+            probabilities = [probability_provider.predict_proba(row) for _, row in data.iterrows()]
+        if len(probabilities) != len(data):
+            raise ValueError(
+                "Probability provider returned "
+                f"{len(probabilities)} rows for {len(data)} feature rows."
+            )
+        return probabilities
 
     def _validate_features(self, features: pd.DataFrame) -> None:
         """Validate required backtest columns."""
@@ -303,6 +370,13 @@ def _bar_exit(setup: TradeSetup, row: pd.Series) -> tuple[float, TradeResult] | 
     if low <= setup.take_profit_2:
         return setup.take_profit_2, TradeResult.WIN
     return None
+
+
+def _column_or_default(rows: pd.DataFrame, column: str, default: object) -> pd.Series:
+    """Return a column or a same-index default Series."""
+    if column in rows:
+        return rows[column]
+    return pd.Series(default, index=rows.index)
 
 
 def _apply_entry_slippage(price: float, signal: SignalType, slippage_rate: float) -> float:

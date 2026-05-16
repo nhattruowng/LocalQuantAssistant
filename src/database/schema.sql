@@ -20,3 +20,56 @@ CREATE TABLE IF NOT EXISTS candles (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(symbol, timeframe, timestamp)
 );
+
+CREATE INDEX IF NOT EXISTS idx_candles_symbol
+ON candles(symbol);
+
+CREATE INDEX IF NOT EXISTS idx_candles_timeframe
+ON candles(timeframe);
+
+CREATE INDEX IF NOT EXISTS idx_candles_timestamp
+ON candles(timestamp);
+
+CREATE INDEX IF NOT EXISTS idx_candles_symbol_timeframe_timestamp
+ON candles(symbol, timeframe, timestamp);
+
+CREATE TABLE IF NOT EXISTS paper_trades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    timeframe TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    strategy TEXT NOT NULL,
+    status TEXT NOT NULL,
+    opened_at DATETIME NOT NULL,
+    closed_at DATETIME,
+    entry REAL NOT NULL,
+    stop_loss REAL NOT NULL,
+    take_profit_1 REAL NOT NULL,
+    take_profit_2 REAL NOT NULL,
+    position_size REAL NOT NULL,
+    confidence REAL NOT NULL,
+    exit_price REAL,
+    pnl REAL DEFAULT 0,
+    result TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_paper_trades_status
+ON paper_trades(status);
+
+CREATE INDEX IF NOT EXISTS idx_paper_trades_symbol_timeframe_status
+ON paper_trades(symbol, timeframe, status);
+
+CREATE TABLE IF NOT EXISTS paper_account_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME NOT NULL,
+    initial_balance REAL NOT NULL,
+    current_balance REAL NOT NULL,
+    realized_pnl REAL NOT NULL,
+    unrealized_pnl REAL NOT NULL,
+    equity REAL NOT NULL,
+    drawdown REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_paper_account_snapshots_timestamp
+ON paper_account_snapshots(timestamp);

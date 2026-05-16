@@ -101,6 +101,7 @@ class TradeSetup:
     position_size: float | None
     reasons: list[str]
     risk_notes: list[str]
+    explainability: dict[str, object] | None = None
 
     def to_dict(self) -> dict[str, object]:
         """Serialize setup into API-friendly primitive values."""

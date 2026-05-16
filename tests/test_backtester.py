@@ -22,6 +22,24 @@ class AlwaysBuyProvider:
         return {"BUY": 0.70, "SELL": 0.10, "WAIT": 0.20}
 
 
+class BatchBuyProvider(AlwaysBuyProvider):
+    """Fake provider that verifies batch scoring is used."""
+
+    mode = "test_batch"
+
+    def __init__(self) -> None:
+        self.batch_calls = 0
+        self.row_calls = 0
+
+    def predict_proba(self, row: pd.Series) -> dict[str, float]:
+        self.row_calls += 1
+        return super().predict_proba(row)
+
+    def predict_proba_batch(self, rows: pd.DataFrame) -> list[dict[str, float]]:
+        self.batch_calls += 1
+        return [{"BUY": 0.70, "SELL": 0.10, "WAIT": 0.20} for _ in range(len(rows))]
+
+
 def test_backtester_closes_buy_on_tp_hit():
     report = Backtester(load_settings()).run(
         features=_features(future_high=131.0, future_low=99.0),
@@ -122,6 +140,21 @@ def test_backtester_does_not_open_overlapping_positions():
     assert report.total_trades == 2
     assert [trade.opened_at for trade in report.trades] == [timestamps[0], timestamps[3]]
     assert report.trades[0].closed_at == timestamps[2]
+
+
+def test_backtester_uses_batch_probability_provider_when_available():
+    provider = BatchBuyProvider()
+
+    report = Backtester(load_settings()).run(
+        features=_features(future_high=131.0, future_low=99.0),
+        symbol="BTC/USDT",
+        timeframe="15m",
+        probability_provider=provider,
+    )
+
+    assert report.total_trades == 1
+    assert provider.batch_calls == 1
+    assert provider.row_calls == 0
 
 
 def test_calculate_max_drawdown():

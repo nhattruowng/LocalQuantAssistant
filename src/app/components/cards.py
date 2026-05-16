@@ -49,3 +49,35 @@ def render_reasons(title: str, items: list[str]) -> None:
         return
     for item in items:
         st.markdown(f"- {item}")
+
+
+def render_explainability(explainability: dict[str, Any] | None) -> None:
+    """Render model explanation factors for a setup."""
+    st.subheader("Model Explanation")
+    if not explainability:
+        st.info("No model explanation available. Train a model first or install SHAP for richer explanations.")
+        return
+
+    st.caption(str(explainability.get("summary", "")))
+    positive = list(explainability.get("top_positive_factors", []))
+    negative = list(explainability.get("top_negative_factors", []))
+    cols = st.columns(2)
+    with cols[0]:
+        st.markdown("**Top positive factors**")
+        _render_factor_list(positive, empty_text="No positive factors.")
+    with cols[1]:
+        st.markdown("**Top negative factors**")
+        _render_factor_list(negative, empty_text="No negative factors.")
+
+
+def _render_factor_list(items: list[Any], empty_text: str) -> None:
+    """Render feature contribution rows."""
+    if not items:
+        st.caption(empty_text)
+        return
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        feature = item.get("feature", "-")
+        impact = float(item.get("impact", 0.0))
+        st.markdown(f"- `{feature}`: `{impact:.4f}`")

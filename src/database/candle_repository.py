@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 import sqlite3
 
 from database.connection import Database
 from domain.entities import Candle
+
+
+@dataclass(frozen=True)
+class CandleDatasetFingerprint:
+    """Small cache key describing one candle dataset version."""
+
+    row_count: int
+    latest_timestamp: datetime | None
 
 
 class CandleRepository:
@@ -17,35 +26,38 @@ class CandleRepository:
 
     def insert_many(self, candles: list[Candle]) -> int:
         """Insert candles and return the number of newly stored rows."""
-        inserted = 0
-        for candle in candles:
-            cursor = self._database.execute(
-                """
-                INSERT OR IGNORE INTO candles (
-                    symbol,
-                    timeframe,
-                    timestamp,
-                    open,
-                    high,
-                    low,
-                    close,
-                    volume
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    candle.symbol,
-                    candle.timeframe,
-                    candle.timestamp.isoformat(),
-                    candle.open,
-                    candle.high,
-                    candle.low,
-                    candle.close,
-                    candle.volume,
-                ),
+        if not candles:
+            return 0
+        parameters = [
+            (
+                candle.symbol,
+                candle.timeframe,
+                candle.timestamp.isoformat(),
+                candle.open,
+                candle.high,
+                candle.low,
+                candle.close,
+                candle.volume,
             )
-            inserted += cursor.rowcount
-        return inserted
+            for candle in candles
+        ]
+        cursor = self._database.execute_many(
+            """
+            INSERT OR IGNORE INTO candles (
+                symbol,
+                timeframe,
+                timestamp,
+                open,
+                high,
+                low,
+                close,
+                volume
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            parameters,
+        )
+        return max(cursor.rowcount, 0)
 
     def get_latest_timestamp(
         self,
@@ -66,6 +78,28 @@ class CandleRepository:
         if row is None:
             return None
         return _parse_datetime(row["timestamp"])
+
+    def get_fingerprint(
+        self,
+        symbol: str,
+        timeframe: str,
+    ) -> CandleDatasetFingerprint:
+        """Return row count and latest timestamp for cache invalidation."""
+        row = self._database.execute(
+            """
+            SELECT COUNT(*) AS row_count, MAX(timestamp) AS latest_timestamp
+            FROM candles
+            WHERE symbol = ? AND timeframe = ?
+            """,
+            (symbol, timeframe),
+        ).fetchone()
+        latest_timestamp = row["latest_timestamp"] if row else None
+        return CandleDatasetFingerprint(
+            row_count=int(row["row_count"] if row else 0),
+            latest_timestamp=(
+                _parse_datetime(latest_timestamp) if latest_timestamp is not None else None
+            ),
+        )
 
     def list_candles(
         self,

@@ -14,8 +14,18 @@ if str(SRC_DIR) not in sys.path:
 import pandas as pd
 import streamlit as st
 
-from app.components.cards import render_metric_card, render_reasons, render_signal_card
-from app.components.charts import candlestick_chart, equity_curve_chart, rsi_chart
+from app.components.cards import (
+    render_explainability,
+    render_metric_card,
+    render_reasons,
+    render_signal_card,
+)
+from app.components.charts import (
+    candlestick_chart,
+    equity_curve_chart,
+    paper_equity_curve_chart,
+    rsi_chart,
+)
 from app.components.tables import render_dataframe_table, render_signal_history
 from app.services.dashboard_service import DashboardService
 from backtest.models import BacktestReport
@@ -126,8 +136,8 @@ def main() -> None:
     except Exception:
         features = pd.DataFrame()
 
-    market_tab, signal_tab, backtest_tab, model_tab, history_tab = st.tabs(
-        ["Market", "Signal", "Backtest", "Model", "History"]
+    market_tab, signal_tab, backtest_tab, model_tab, history_tab, paper_tab = st.tabs(
+        ["Market", "Signal", "Backtest", "Model", "History", "Paper Trading"]
     )
     with market_tab:
         _render_market_tab(features)
@@ -139,6 +149,8 @@ def main() -> None:
         _render_model_tab(load_model_metadata(symbol, timeframe))
     with history_tab:
         _render_history_tab(load_history())
+    with paper_tab:
+        _render_paper_trading_tab(service.load_paper_account(symbol, timeframe))
 
 
 def _render_market_tab(features: pd.DataFrame) -> None:
@@ -175,6 +187,7 @@ def _render_signal_tab(setup: dict[str, object] | None) -> None:
     levels[1].metric("Stop Loss", _fmt(setup.get("stop_loss")))
     levels[2].metric("Take Profit 1", _fmt(setup.get("take_profit_1")))
     levels[3].metric("Take Profit 2", _fmt(setup.get("take_profit_2")))
+    render_explainability(_as_dict(setup.get("explainability")))
     render_reasons("Reasons", list(setup.get("reasons", [])))
     render_reasons("Risk Notes", list(setup.get("risk_notes", [])))
 
@@ -209,6 +222,11 @@ def _render_model_tab(metadata: dict[str, object] | None) -> None:
     cols[2].metric("Feature Count", len(metadata.get("feature_columns", [])))
     st.subheader("Metrics")
     st.json(metadata.get("metrics", {}), expanded=False)
+    st.subheader("Explainability")
+    st.caption(
+        "Signal explanations use SHAP when the optional package is installed. "
+        "If SHAP is unavailable, the dashboard falls back to model feature importance."
+    )
     importance = (
         metadata.get("metrics", {}).get("feature_importance", {})
         if isinstance(metadata.get("metrics"), dict)
@@ -246,6 +264,32 @@ def _render_history_tab(history: pd.DataFrame) -> None:
     render_signal_history(filtered)
 
 
+def _render_paper_trading_tab(account: dict[str, object]) -> None:
+    """Render paper trading account state."""
+    st.warning("Paper Trading Mode is simulation only. No real orders are sent.")
+    cols = st.columns(5)
+    cols[0].metric("Balance", _fmt(account.get("current_balance")))
+    cols[1].metric("Equity", _fmt(account.get("equity")))
+    cols[2].metric("Realized PnL", _fmt(account.get("realized_pnl")))
+    cols[3].metric("Unrealized PnL", _fmt(account.get("unrealized_pnl")))
+    cols[4].metric("Drawdown", _fmt(account.get("drawdown")))
+
+    snapshots = pd.DataFrame(list(account.get("snapshots", [])))
+    if not snapshots.empty and "equity" in snapshots:
+        st.plotly_chart(paper_equity_curve_chart(snapshots), use_container_width=True)
+
+    st.subheader("Open Positions")
+    render_dataframe_table(
+        pd.DataFrame(list(account.get("open_positions", []))),
+        "No open paper positions.",
+    )
+    st.subheader("Closed Trades")
+    render_dataframe_table(
+        pd.DataFrame(list(account.get("closed_trades", []))),
+        "No closed paper trades yet.",
+    )
+
+
 def _clear_caches() -> None:
     """Clear cached dashboard data."""
     load_features.clear()
@@ -261,6 +305,13 @@ def _fmt(value: object) -> str:
         return f"{float(value):.4f}"
     except (TypeError, ValueError):
         return str(value)
+
+
+def _as_dict(value: object) -> dict[str, object] | None:
+    """Return a dict value for dashboard payloads."""
+    if isinstance(value, dict):
+        return value
+    return None
 
 
 def _inject_style() -> None:

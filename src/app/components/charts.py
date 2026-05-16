@@ -107,3 +107,27 @@ def equity_curve_chart(trades: pd.DataFrame) -> go.Figure:
         template="plotly_white",
     )
     return fig
+
+
+def paper_equity_curve_chart(snapshots: pd.DataFrame) -> go.Figure:
+    """Build an equity curve from paper account snapshots."""
+    fig = go.Figure()
+    if snapshots.empty or "equity" not in snapshots:
+        fig.update_layout(template="plotly_white", height=320)
+        return fig
+    x = snapshots["timestamp"] if "timestamp" in snapshots else snapshots.index
+    fig.add_trace(
+        go.Scatter(
+            x=x,
+            y=snapshots["equity"],
+            name="Paper Equity",
+            mode="lines+markers",
+            line={"color": "#16a34a", "width": 2},
+        )
+    )
+    fig.update_layout(
+        height=320,
+        margin={"l": 10, "r": 10, "t": 25, "b": 10},
+        template="plotly_white",
+    )
+    return fig

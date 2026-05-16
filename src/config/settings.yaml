@@ -106,3 +106,14 @@ backtest:
   cooldown_bars_after_loss: 3
   max_holding_bars: 10
   output_dir: data/backtest
+
+notification:
+  enabled: false
+  min_confidence: 0.70
+  min_risk_reward: 2.0
+  cooldown_seconds: 900
+  request_timeout_seconds: 5.0
+
+paper_trading:
+  enabled: false
+  initial_balance: 10000.0

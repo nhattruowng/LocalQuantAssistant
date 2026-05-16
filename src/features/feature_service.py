@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import logging
+from time import perf_counter
 
 import pandas as pd
 
@@ -26,6 +27,7 @@ class FeatureService:
         self._settings = settings
         self._builder = FeatureBuilder(settings.feature_toggles, settings.market_regime)
         self._logger = logger or logging.getLogger("localquant.features")
+        self._cache: dict[tuple[str, str, bool, int, str | None], pd.DataFrame] = {}
 
     def build_features(
         self,
@@ -34,23 +36,47 @@ class FeatureService:
         drop_warmup_rows: bool | None = None,
     ) -> pd.DataFrame:
         """Build features for stored candles."""
-        candles = self._repository.list_candles(symbol=symbol, timeframe=timeframe)
-        if not candles:
+        started_at = perf_counter()
+        fingerprint = self._repository.get_fingerprint(symbol, timeframe)
+        if fingerprint.row_count == 0:
             raise ValueError(f"No candles found for symbol={symbol} timeframe={timeframe}.")
 
-        raw = candles_to_dataframe(candles)
         should_drop = (
             self._settings.features.drop_warmup_rows
             if drop_warmup_rows is None
             else drop_warmup_rows
         )
+        cache_key = (
+            symbol,
+            timeframe,
+            should_drop,
+            fingerprint.row_count,
+            fingerprint.latest_timestamp.isoformat() if fingerprint.latest_timestamp else None,
+        )
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            self._logger.debug(
+                "Feature cache hit: symbol=%s timeframe=%s rows=%s",
+                symbol,
+                timeframe,
+                len(cached),
+            )
+            return cached.copy(deep=True)
+
+        candles = self._repository.list_candles(symbol=symbol, timeframe=timeframe)
+        raw = candles_to_dataframe(candles)
         features = self._builder.build(raw, drop_warmup_rows=should_drop)
+        self._cache[cache_key] = features.copy(deep=True)
+        if len(self._cache) > 16:
+            oldest_key = next(iter(self._cache))
+            self._cache.pop(oldest_key, None)
         self._logger.info(
-            "Built feature dataset: symbol=%s timeframe=%s rows=%s columns=%s",
+            "Built feature dataset: symbol=%s timeframe=%s rows=%s columns=%s elapsed_ms=%.2f",
             symbol,
             timeframe,
             len(features),
             len(features.columns),
+            (perf_counter() - started_at) * 1000,
         )
         return features
 

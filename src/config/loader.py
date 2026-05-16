@@ -23,6 +23,8 @@ from config.settings import (
     LoggingSettings,
     MarketRegimeSettings,
     ModelSettings,
+    NotificationSettings,
+    PaperTradingSettings,
     RiskSettings,
     Settings,
     SignalSettings,
@@ -58,6 +60,8 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
     labeling_config = raw_config.get("labeling", {})
     training_config = raw_config.get("training", {})
     backtest_config = raw_config.get("backtest", {})
+    notification_config = raw_config.get("notification", {})
+    paper_trading_config = raw_config.get("paper_trading", {})
 
     database_path = os.getenv("LOCALQUANT_DB_PATH", database_config.get("path"))
     log_level = os.getenv("LOG_LEVEL", logging_config.get("level", "INFO"))
@@ -233,6 +237,21 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
             max_holding_bars=int(backtest_config.get("max_holding_bars", 10)),
             output_dir=_resolve_path(backtest_config.get("output_dir", "data/backtest"), base_dir),
         ),
+        notification=NotificationSettings(
+            enabled=bool(notification_config.get("enabled", False)),
+            telegram_bot_token=_optional_env("TELEGRAM_BOT_TOKEN"),
+            telegram_chat_id=_optional_env("TELEGRAM_CHAT_ID"),
+            min_confidence=float(notification_config.get("min_confidence", 0.70)),
+            min_risk_reward=float(notification_config.get("min_risk_reward", 2.0)),
+            cooldown_seconds=int(notification_config.get("cooldown_seconds", 900)),
+            request_timeout_seconds=float(
+                notification_config.get("request_timeout_seconds", 5.0)
+            ),
+        ),
+        paper_trading=PaperTradingSettings(
+            enabled=bool(paper_trading_config.get("enabled", False)),
+            initial_balance=float(paper_trading_config.get("initial_balance", 10_000.0)),
+        ),
     )
     _validate_settings(settings)
     return settings
@@ -336,6 +355,14 @@ def _optional_int(value: Any) -> int | None:
     return int(value)
 
 
+def _optional_env(key: str) -> str | None:
+    """Return a non-empty environment variable value."""
+    value = os.getenv(key)
+    if value is None or not value.strip():
+        return None
+    return value.strip()
+
+
 def _validate_settings(settings: Settings) -> None:
     """Validate cross-section settings that can silently break workflows."""
     split_total = (
@@ -355,3 +382,11 @@ def _validate_settings(settings: Settings) -> None:
         raise ValueError("Backtest max_holding_bars must be positive.")
     if settings.risk.account_balance < 0 or settings.risk.risk_per_trade_pct < 0:
         raise ValueError("Risk account balance and risk percent must be non-negative.")
+    if settings.notification.min_confidence < 0 or settings.notification.min_confidence > 1:
+        raise ValueError("Notification min_confidence must be between 0 and 1.")
+    if settings.notification.min_risk_reward < 0:
+        raise ValueError("Notification min_risk_reward must be non-negative.")
+    if settings.notification.cooldown_seconds < 0:
+        raise ValueError("Notification cooldown_seconds must be non-negative.")
+    if settings.paper_trading.initial_balance < 0:
+        raise ValueError("Paper trading initial_balance must be non-negative.")

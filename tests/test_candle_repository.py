@@ -41,6 +41,21 @@ def test_candle_repository_returns_latest_timestamp(tmp_path):
     assert latest == second_timestamp
 
 
+def test_candle_repository_returns_dataset_fingerprint(tmp_path):
+    database = create_database(DatabaseSettings(driver="sqlite", path=tmp_path / "app.db"))
+    database.initialize()
+    repository = CandleRepository(database)
+    first_timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+    second_timestamp = first_timestamp + timedelta(hours=1)
+
+    repository.insert_many([_candle(first_timestamp), _candle(second_timestamp)])
+    fingerprint = repository.get_fingerprint("BTC/USDT", "1h")
+    database.close()
+
+    assert fingerprint.row_count == 2
+    assert fingerprint.latest_timestamp == second_timestamp
+
+
 def _candle(timestamp: datetime) -> Candle:
     """Build a test candle for repository tests."""
     return Candle(

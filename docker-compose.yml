@@ -1,0 +1,28 @@
+services:
+  localquant:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: localquant-assistant:latest
+    container_name: localquant-assistant
+    user: "${LOCALQUANT_UID:-10001}:${LOCALQUANT_GID:-10001}"
+    environment:
+      APP_CONFIG_PATH: ${APP_CONFIG_PATH:-src/config/settings.yaml}
+      LOCALQUANT_DB_PATH: ${LOCALQUANT_DB_PATH:-data/localquant.db}
+      LOCALQUANT_ENV: ${LOCALQUANT_ENV:-docker}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      STREAMLIT_SERVER_HEADLESS: "true"
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+    ports:
+      - "${STREAMLIT_PORT:-8501}:8501"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./logs:/app/logs
+    command: >
+      streamlit run src/app/dashboard.py
+      --server.address=0.0.0.0
+      --server.port=8501
+    restart: unless-stopped

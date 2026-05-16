@@ -18,6 +18,13 @@ class Database(Protocol):
     def execute(self, query: str, parameters: tuple[Any, ...] = ()) -> sqlite3.Cursor:
         """Execute a statement and commit it."""
 
+    def execute_many(
+        self,
+        query: str,
+        parameters: list[tuple[Any, ...]],
+    ) -> sqlite3.Cursor:
+        """Execute one statement for many parameter sets and commit it."""
+
     def close(self) -> None:
         """Close the database connection."""
 
@@ -36,6 +43,8 @@ class SQLiteDatabase:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             self._connection = sqlite3.connect(self._path)
             self._connection.row_factory = sqlite3.Row
+            self._connection.execute("PRAGMA journal_mode=WAL")
+            self._connection.execute("PRAGMA synchronous=NORMAL")
         return self._connection
 
     def initialize(self) -> None:
@@ -47,6 +56,16 @@ class SQLiteDatabase:
     def execute(self, query: str, parameters: tuple[Any, ...] = ()) -> sqlite3.Cursor:
         """Execute a SQLite statement and commit it."""
         cursor = self.connection.execute(query, parameters)
+        self.connection.commit()
+        return cursor
+
+    def execute_many(
+        self,
+        query: str,
+        parameters: list[tuple[Any, ...]],
+    ) -> sqlite3.Cursor:
+        """Execute a SQLite statement for many rows in one transaction."""
+        cursor = self.connection.executemany(query, parameters)
         self.connection.commit()
         return cursor
 
