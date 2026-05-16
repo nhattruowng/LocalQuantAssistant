@@ -5,8 +5,9 @@ TIMEFRAME ?= 15m
 MODEL ?= models/model.joblib
 METADATA ?=
 STREAMLIT_PORT ?= 8501
+API_PORT ?= 8000
 
-.PHONY: install collect features train backtest dashboard test docker-build docker-up docker-down docker-logs docker-shell docker-collect docker-features docker-train docker-backtest docker-test
+.PHONY: install collect features train backtest dashboard api test docker-build docker-up docker-down docker-logs docker-shell docker-collect docker-features docker-train docker-backtest docker-test docker-api
 
 install:
 	$(PYTHON) -m pip install -r requirements.txt
@@ -25,6 +26,9 @@ backtest:
 
 dashboard:
 	streamlit run src/app/dashboard.py
+
+api:
+	uvicorn src.api.main:app --reload --host 0.0.0.0 --port $(API_PORT)
 
 test:
 	pytest
@@ -58,3 +62,6 @@ docker-backtest:
 
 docker-test:
 	$(DOCKER_COMPOSE) run --rm localquant pytest
+
+docker-api:
+	$(DOCKER_COMPOSE) run --rm --service-ports localquant uvicorn src.api.main:app --host 0.0.0.0 --port 8000

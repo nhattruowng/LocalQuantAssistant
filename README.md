@@ -74,6 +74,7 @@ Các agent chỉ điều phối pipeline phân tích và tạo `TradeSetup`. Kh�
 | Machine learning | XGBoost optional, RandomForest fallback |
 | Model persistence | joblib |
 | Dashboard | Streamlit |
+| REST API | FastAPI, Uvicorn |
 | Charting | Plotly |
 | Testing | pytest |
 | Config | YAML + `.env` overrides |
@@ -96,6 +97,7 @@ localquant-assistant/
 │   └── benchmark_pipeline.py
 ├── src/
 │   ├── agents/
+│   ├── api/
 │   ├── app/
 │   ├── backtest/
 │   ├── collector/
@@ -174,6 +176,8 @@ APP_CONFIG_PATH=src/config/settings.yaml
 LOCALQUANT_DB_PATH=data/localquant.db
 LOG_LEVEL=INFO
 STREAMLIT_PORT=8501
+API_PORT=8000
+LOCALQUANT_CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
 ```
@@ -335,6 +339,59 @@ make dashboard
 make docker-up
 ```
 
+### 6. REST API
+
+FastAPI app chạy tách khỏi Streamlit để frontend React hoặc client khác có thể dùng trading engine qua HTTP.
+
+```powershell
+uvicorn src.api.main:app --reload
+```
+
+Make:
+
+```powershell
+make api
+```
+
+Health check:
+
+```text
+GET http://localhost:8000/api/health
+```
+
+OpenAPI docs:
+
+```text
+http://localhost:8000/docs
+```
+
+Main endpoints:
+
+```text
+GET  /api/symbols
+GET  /api/timeframes
+GET  /api/candles?symbol=BTC/USDT&timeframe=15m&limit=500
+POST /api/data/update
+POST /api/features/build
+POST /api/signals/generate
+GET  /api/signals/history?symbol=BTC/USDT&timeframe=15m
+POST /api/backtest/run
+GET  /api/backtest/latest?symbol=BTC/USDT&timeframe=15m
+GET  /api/model/info
+POST /api/model/train
+```
+
+Example signal request:
+
+```json
+{
+  "symbol": "BTC/USDT",
+  "timeframe": "15m",
+  "account_balance": 1000,
+  "risk_percent": 1
+}
+```
+
 ## Make Commands
 
 ```powershell
@@ -344,6 +401,7 @@ make features SYMBOL=BTC/USDT TIMEFRAME=15m
 make train SYMBOL=BTC/USDT TIMEFRAME=15m
 make backtest SYMBOL=BTC/USDT TIMEFRAME=15m MODEL=models/model.joblib
 make dashboard
+make api
 make test
 make docker-up
 make docker-down
@@ -356,6 +414,7 @@ make docker-collect SYMBOL=BTC/USDT TIMEFRAME=15m
 make docker-features SYMBOL=BTC/USDT TIMEFRAME=15m
 make docker-train SYMBOL=BTC/USDT TIMEFRAME=15m
 make docker-backtest SYMBOL=BTC/USDT TIMEFRAME=15m MODEL=models/model.joblib
+make docker-api
 make docker-test
 ```
 
@@ -438,6 +497,24 @@ Empty states được xử lý rõ ràng:
 No data found. Please update market data first.
 No model found. Please train a model first.
 ```
+
+### React Frontend
+
+Ngoài Streamlit dashboard, dự án có frontend React + TypeScript trong `frontend/` để dùng với FastAPI backend.
+
+```bash
+cd frontend
+cp .env.example .env
+npm install
+npm run dev
+```
+
+Default URLs:
+
+- FastAPI backend: `http://localhost:8000`
+- React frontend: `http://localhost:5173`
+
+Nếu backend chạy ở host/port khác, cập nhật `VITE_API_BASE_URL` trong `frontend/.env`.
 
 ## Screenshots
 

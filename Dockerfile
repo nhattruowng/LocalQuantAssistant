@@ -23,6 +23,6 @@ RUN mkdir -p data/raw data/processed data/backtest models logs \
 
 USER localquant
 
-EXPOSE 8501
+EXPOSE 8501 8000
 
 CMD ["streamlit", "run", "src/app/dashboard.py", "--server.address=0.0.0.0", "--server.port=8501"]

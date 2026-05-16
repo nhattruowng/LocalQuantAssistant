@@ -122,6 +122,25 @@ class CandleRepository:
         rows = self._database.execute(query, parameters).fetchall()
         return [_row_to_candle(row) for row in rows]
 
+    def list_latest_candles(
+        self,
+        symbol: str,
+        timeframe: str,
+        limit: int,
+    ) -> list[Candle]:
+        """Read the latest candles ordered by timestamp ascending."""
+        rows = self._database.execute(
+            """
+            SELECT symbol, timeframe, timestamp, open, high, low, close, volume
+            FROM candles
+            WHERE symbol = ? AND timeframe = ?
+            ORDER BY timestamp DESC
+            LIMIT ?
+            """,
+            (symbol, timeframe, limit),
+        ).fetchall()
+        return list(reversed([_row_to_candle(row) for row in rows]))
+
 
 def _row_to_candle(row: sqlite3.Row) -> Candle:
     """Convert a SQLite row into a Candle."""
