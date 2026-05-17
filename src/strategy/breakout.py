@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from regime.market_regime import MarketRegime
-from signal.models import SignalContext, SignalType, StrategyDecision, StrategyType
+from signals.models import SignalContext, SignalType, StrategyDecision, StrategyType
 from strategy.base import Strategy
 
 

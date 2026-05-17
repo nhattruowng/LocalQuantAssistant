@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from signal.models import TradeSetup
+from signals.models import TradeSetup
 
 
 class NotificationService(Protocol):

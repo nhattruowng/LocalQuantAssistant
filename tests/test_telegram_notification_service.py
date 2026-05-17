@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from config.settings import NotificationSettings
 from notification.telegram_service import TelegramNotificationService
-from signal.models import SignalType, StrategyType, TradeSetup
+from signals.models import SignalType, StrategyType, TradeSetup
 
 
 def test_telegram_service_sends_strong_buy_once_then_cooldown():

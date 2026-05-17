@@ -7,7 +7,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from signal.models import SignalType, StrategyType
+from signals.models import SignalType, StrategyType
 
 
 class TradeResult(str, Enum):

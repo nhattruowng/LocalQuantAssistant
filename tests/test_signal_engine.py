@@ -8,8 +8,8 @@ from datetime import UTC, datetime
 from config.loader import load_settings
 from config.settings import Settings
 from regime.market_regime import MarketRegime
-from signal.models import SignalType, StrategyType
-from signal.signal_engine import SignalEngine
+from signals.models import SignalType, StrategyType
+from signals.signal_engine import SignalEngine
 
 
 def test_signal_engine_generates_trend_following_buy():

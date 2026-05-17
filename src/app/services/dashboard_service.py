@@ -25,8 +25,8 @@ from ml.explainability import ExplainabilityService
 from notification.telegram_service import TelegramNotificationService
 from paper.paper_trading_engine import PaperTradingEngine
 from risk.risk_manager import RiskManager
-from signal.models import TradeSetup
-from signal.signal_engine import SignalEngine
+from signals.models import TradeSetup
+from signals.signal_engine import SignalEngine
 
 
 class DashboardService:

@@ -10,7 +10,7 @@ from typing import Mapping
 from config.settings import PaperTradingSettings
 from database.connection import Database
 from paper.account import PaperAccountSnapshot, PaperTrade, PaperTradingAccount
-from signal.models import SignalType, TradeSetup
+from signals.models import SignalType, TradeSetup
 
 
 class PaperTradingEngine:

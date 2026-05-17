@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 from config.settings import SignalSettings
-from signal.models import SignalContext, SignalType, StrategyDecision, StrategyType
+from signals.models import SignalContext, SignalType, StrategyDecision, StrategyType
 
 
 class Strategy(ABC):

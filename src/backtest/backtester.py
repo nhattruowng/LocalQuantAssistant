@@ -14,8 +14,8 @@ from backtest.metrics import build_report
 from backtest.models import BacktestReport, Trade, TradeResult
 from config.settings import Settings
 from regime.market_regime import MarketRegime
-from signal.models import SignalType, TradeSetup
-from signal.signal_engine import SignalEngine
+from signals.models import SignalType, TradeSetup
+from signals.signal_engine import SignalEngine
 
 
 class ProbabilityProvider(Protocol):

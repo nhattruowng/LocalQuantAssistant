@@ -6,7 +6,7 @@ import pytest
 
 from config.settings import Settings
 from risk.risk_manager import RiskManager
-from signal.models import SignalType
+from signals.models import SignalType
 
 
 def test_risk_manager_calculates_buy_levels(settings: Settings):

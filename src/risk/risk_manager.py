@@ -6,7 +6,7 @@ import math
 from typing import Mapping
 
 from config.settings import RiskSettings
-from signal.models import RiskPlan, SignalType
+from signals.models import RiskPlan, SignalType
 
 
 class RiskManager:

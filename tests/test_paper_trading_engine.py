@@ -9,7 +9,7 @@ import pytest
 from config.settings import DatabaseSettings, PaperTradingSettings
 from database.connection import create_database
 from paper.paper_trading_engine import PaperTradingEngine
-from signal.models import SignalType, StrategyType, TradeSetup
+from signals.models import SignalType, StrategyType, TradeSetup
 
 
 def test_paper_trading_engine_opens_buy_trade(tmp_path):

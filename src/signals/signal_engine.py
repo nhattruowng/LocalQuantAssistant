@@ -8,7 +8,7 @@ from typing import Mapping
 from config.settings import Settings
 from regime.market_regime import MarketRegime
 from risk.risk_manager import RiskManager
-from signal.models import (
+from signals.models import (
     RiskPlan,
     SignalContext,
     SignalType,

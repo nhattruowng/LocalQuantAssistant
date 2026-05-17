@@ -11,7 +11,7 @@ from urllib import request
 from urllib.error import URLError
 
 from config.settings import NotificationSettings
-from signal.models import SignalType, TradeSetup
+from signals.models import SignalType, TradeSetup
 
 
 HttpPoster = Callable[[str, bytes, float], None]
