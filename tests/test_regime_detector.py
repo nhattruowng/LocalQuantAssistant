@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import json
 
 import pandas as pd
 
@@ -25,6 +26,25 @@ def test_detects_uptrend():
     result = detector.detect(features)
 
     assert result["market_regime"].iloc[-1] == MarketRegime.UPTREND.value
+
+
+def test_detector_outputs_soft_regime_metadata():
+    detector = MarketRegimeDetector(_settings_without_volatility_filter())
+    features = _base_features()
+    features.loc[features.index[-1], ["close", "ema_20", "ema_50", "ema_20_slope"]] = [
+        110.0,
+        105.0,
+        100.0,
+        0.5,
+    ]
+
+    result = detector.detect(features)
+    scores = json.loads(result["regime_scores"].iloc[-1])
+
+    assert result["primary_regime"].iloc[-1] == MarketRegime.UPTREND.value
+    assert scores[MarketRegime.UPTREND.value] > 0.0
+    assert 0.0 <= result["regime_confidence"].iloc[-1] <= 1.0
+    assert isinstance(result["transition_warning"].iloc[-1], bool)
 
 
 def test_detects_downtrend():

@@ -22,8 +22,12 @@ from database.candle_repository import CandleRepository
 from database.connection import create_database
 from features.feature_service import FeatureService
 from ml.explainability import ExplainabilityService
+from ml.model_registry import GLOBAL_SCOPE, ModelRegistry
+from ml.prediction_service import PredictionService
 from notification.telegram_service import TelegramNotificationService
 from paper.paper_trading_engine import PaperTradingEngine
+from paper.risk_analytics import PaperRiskAnalyticsBuilder
+from risk.risk_guard import RiskGuard, RiskGuardContext, RiskGuardEvent
 from risk.risk_manager import RiskManager
 from signals.models import TradeSetup
 from signals.signal_engine import SignalEngine
@@ -131,6 +135,7 @@ class DashboardService:
         timeframe: str,
         account_balance: float,
         risk_percent: float,
+        multi_timeframe: bool | None = None,
     ) -> TradeSetup:
         """Generate the latest signal setup."""
         features = self.load_features(symbol, timeframe)
@@ -140,12 +145,44 @@ class DashboardService:
         if latest.empty:
             raise ValueError("Not enough indicator data yet. Please collect more candles.")
         row = latest.iloc[0]
-        provider = self._probability_provider(symbol, timeframe)
-        probabilities = provider.predict_proba(row)
+        provider = None
+        try:
+            prediction = PredictionService(self._settings).predict_row(symbol, timeframe, row)
+            probability_data = {
+                "probabilities": prediction.probabilities,
+                "raw_probabilities": prediction.raw_probabilities,
+                "calibrated_probabilities": prediction.calibrated_probabilities,
+                "probability_source": prediction.probability_source,
+                "model_scope_used": prediction.model_scope_used,
+                "model_version": prediction.model_version,
+                "fallback_reason": prediction.fallback_reason,
+            }
+            provider = ModelProbabilityProvider.from_files(
+                Path(str(prediction.metadata["model_path"])),
+                Path(str(prediction.metadata["metadata_path"])),
+                use_calibrated_probability=self._settings.signal.use_calibrated_probability,
+            )
+        except Exception as error:
+            self._logger.warning("Falling back to rule-only probabilities: %s", error)
+            provider = self._probability_provider(symbol, timeframe)
+            probability_data = _probability_data(provider, row)
         settings = self._with_risk_inputs(account_balance, risk_percent)
+        risk_guard, risk_guard_context = self._risk_guard_for_signal(
+            symbol=symbol,
+            timeframe=timeframe,
+            mark_price=float(row["close"]),
+            timestamp=row["timestamp"],
+        )
+        higher_timeframe_features, higher_timeframe_regimes = self._higher_timeframe_payload(
+            symbol=symbol,
+            primary_timeframe=timeframe,
+            multi_timeframe=multi_timeframe,
+        )
         setup = SignalEngine(
             settings=settings,
             risk_manager=RiskManager(settings.risk),
+            risk_guard=risk_guard,
+            risk_guard_context=risk_guard_context,
             logger=self._logger,
         ).generate(
             symbol=symbol,
@@ -153,7 +190,16 @@ class DashboardService:
             timestamp=row["timestamp"],
             market_regime=str(row["market_regime"]),
             features=row.to_dict(),
-            probabilities=probabilities,
+            probabilities=probability_data["probabilities"],
+            raw_probabilities=probability_data["raw_probabilities"],
+            calibrated_probabilities=probability_data["calibrated_probabilities"],
+            probability_source=str(probability_data["probability_source"]),
+            model_scope_used=_optional_string(probability_data.get("model_scope_used")),
+            model_version=_optional_string(probability_data.get("model_version")),
+            fallback_reason=_optional_string(probability_data.get("fallback_reason")),
+            higher_timeframe_features=higher_timeframe_features,
+            higher_timeframe_regimes=higher_timeframe_regimes,
+            multi_timeframe_enabled=multi_timeframe,
         )
         explanation = self._explain_signal(provider, row, setup)
         if explanation is not None:
@@ -182,6 +228,40 @@ class DashboardService:
                 logger=self._logger,
             ).load_account(mark_price=mark_price)
             return account.to_dict()
+        finally:
+            database.close()
+
+    def load_paper_analytics(self, symbol: str, timeframe: str) -> dict[str, object]:
+        """Load paper trading risk analytics."""
+        mark_price: float | None = None
+        try:
+            features = self.load_features(symbol, timeframe)
+            if not features.empty:
+                mark_price = float(features.sort_values("timestamp").iloc[-1]["close"])
+        except Exception:
+            mark_price = None
+        database = create_database(self._settings.database)
+        database.initialize()
+        try:
+            account = PaperTradingEngine(
+                database=database,
+                settings=self._settings.paper_trading,
+                logger=self._logger,
+            ).load_account(mark_price=mark_price)
+            account = replace(
+                account,
+                open_positions=[
+                    trade
+                    for trade in account.open_positions
+                    if trade.symbol == symbol and trade.timeframe == timeframe
+                ],
+                closed_trades=[
+                    trade
+                    for trade in account.closed_trades
+                    if trade.symbol == symbol and trade.timeframe == timeframe
+                ],
+            )
+            return PaperRiskAnalyticsBuilder().build(account).to_dict()
         finally:
             database.close()
 
@@ -216,6 +296,7 @@ class DashboardService:
                 probability_provider=ModelProbabilityProvider.from_files(
                     Path(model["model_path"]),
                     Path(model["metadata_path"]),
+                    use_calibrated_probability=settings.signal.use_calibrated_probability,
                 ),
             )
         writer = BacktestReportWriter(settings.backtest.output_dir)
@@ -225,15 +306,12 @@ class DashboardService:
 
     def latest_model_metadata(self, symbol: str, timeframe: str) -> dict[str, object] | None:
         """Return latest metadata JSON for a symbol/timeframe."""
-        safe_symbol = symbol.replace("/", "_").replace(":", "_")
-        pattern = f"{safe_symbol}_{timeframe}_*.metadata.json"
-        candidates = sorted(self._settings.training.model_dir.glob(pattern), reverse=True)
-        if not candidates:
-            return None
-        path = candidates[0]
-        metadata = json.loads(path.read_text(encoding="utf-8"))
-        metadata["metadata_path"] = str(path)
-        return metadata
+        return ModelRegistry(self._settings.training.model_dir).latest_metadata(
+            symbol=symbol,
+            timeframe=timeframe,
+            model_scope=GLOBAL_SCOPE,
+            regime=None,
+        )
 
     def load_signal_history(self) -> pd.DataFrame:
         """Load persisted signal history."""
@@ -270,6 +348,7 @@ class DashboardService:
             provider = ModelProbabilityProvider.from_files(
                 Path(metadata["model_path"]),
                 Path(metadata["metadata_path"]),
+                use_calibrated_probability=self._settings.signal.use_calibrated_probability,
             )
             self._provider_cache[key] = provider
             return provider
@@ -312,6 +391,105 @@ class DashboardService:
         finally:
             database.close()
 
+    def _higher_timeframe_payload(
+        self,
+        symbol: str,
+        primary_timeframe: str,
+        multi_timeframe: bool | None,
+    ) -> tuple[dict[str, dict[str, object]], dict[str, str]]:
+        """Load latest higher timeframe feature rows for confirmation."""
+        config = self._settings.signal.multi_timeframe
+        enabled = bool(config and config.enabled)
+        if multi_timeframe is not None:
+            enabled = multi_timeframe
+        if not enabled or config is None:
+            return {}, {}
+
+        payloads: dict[str, dict[str, object]] = {}
+        regimes: dict[str, str] = {}
+        for timeframe in config.confirmation_timeframes:
+            if timeframe == primary_timeframe:
+                continue
+            try:
+                features = self.load_features(symbol, timeframe)
+                latest = features.dropna(subset=["market_regime", "atr_14"]).tail(1)
+                if latest.empty:
+                    self._logger.info(
+                        "Higher timeframe features missing: symbol=%s timeframe=%s",
+                        symbol,
+                        timeframe,
+                    )
+                    continue
+                row = latest.iloc[0].to_dict()
+                payloads[timeframe] = row
+                regimes[timeframe] = str(row.get("market_regime", "UNKNOWN"))
+            except Exception as error:
+                self._logger.warning(
+                    "Higher timeframe confirmation skipped: symbol=%s timeframe=%s error=%s",
+                    symbol,
+                    timeframe,
+                    error,
+                )
+        return payloads, regimes
+
+    def _risk_guard_for_signal(
+        self,
+        symbol: str,
+        timeframe: str,
+        mark_price: float,
+        timestamp: object,
+    ) -> tuple[RiskGuard, RiskGuardContext]:
+        """Build risk guard and context from current paper state."""
+        database = create_database(self._settings.database)
+        database.initialize()
+        now = _as_datetime(timestamp)
+        try:
+            engine = PaperTradingEngine(
+                database=database,
+                settings=self._settings.paper_trading,
+                logger=self._logger,
+            )
+            account = engine.load_account(mark_price=mark_price, timestamp=now)
+            last_blocked_at = _last_blocked_at(database, symbol, timeframe)
+            context = RiskGuardContext(
+                now=now,
+                initial_balance=account.initial_balance,
+                equity=account.equity,
+                open_positions=[
+                    trade
+                    for trade in account.open_positions
+                    if trade.symbol == symbol and trade.timeframe == timeframe
+                ],
+                closed_trades=[
+                    trade
+                    for trade in account.closed_trades
+                    if trade.symbol == symbol and trade.timeframe == timeframe
+                ],
+                snapshots=account.snapshots,
+                last_blocked_at=last_blocked_at,
+                regime_confidence_threshold=(
+                    self._settings.signal.strategy_ensemble.low_regime_confidence_threshold
+                    if self._settings.signal.strategy_ensemble is not None
+                    else 0.55
+                ),
+            )
+            guard = RiskGuard(
+                self._settings.risk_guard,
+                event_logger=self._persist_risk_event,
+            )
+            return guard, context
+        finally:
+            database.close()
+
+    def _persist_risk_event(self, event: RiskGuardEvent) -> None:
+        """Persist one risk guard event using a short-lived DB connection."""
+        database = create_database(self._settings.database)
+        database.initialize()
+        try:
+            _log_risk_event(database, event)
+        finally:
+            database.close()
+
     def _with_risk_inputs(self, account_balance: float, risk_percent: float) -> Settings:
         """Return settings with dashboard risk inputs applied."""
         return replace(
@@ -326,3 +504,69 @@ class DashboardService:
     def _history_path(self) -> Path:
         """Return local signal history CSV path."""
         return self._settings.features.output_dir / "signal_history.csv"
+
+
+def _probability_data(provider: object, row: pd.Series) -> dict[str, object]:
+    """Return probability payload for SignalEngine."""
+    payload = getattr(provider, "probability_payload", None)
+    if callable(payload):
+        return payload(row)
+    probabilities = provider.predict_proba(row)  # type: ignore[attr-defined]
+    return {
+        "probabilities": probabilities,
+        "raw_probabilities": probabilities,
+        "calibrated_probabilities": None,
+        "probability_source": "raw",
+        "model_scope_used": None,
+        "model_version": None,
+        "fallback_reason": None,
+    }
+
+
+def _log_risk_event(database: object, event: RiskGuardEvent) -> None:
+    """Persist one risk guard event."""
+    database.execute(  # type: ignore[attr-defined]
+        """
+        INSERT INTO risk_events (timestamp, state, reason, symbol, timeframe)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            event.timestamp.isoformat(),
+            event.state.value,
+            event.reason,
+            event.symbol,
+            event.timeframe,
+        ),
+    )
+
+
+def _last_blocked_at(database: object, symbol: str, timeframe: str) -> datetime | None:
+    """Return latest blocking risk event timestamp."""
+    row = database.execute(  # type: ignore[attr-defined]
+        """
+        SELECT timestamp
+        FROM risk_events
+        WHERE symbol = ? AND timeframe = ? AND state IN ('BLOCKED', 'COOLDOWN')
+        ORDER BY timestamp DESC
+        LIMIT 1
+        """,
+        (symbol, timeframe),
+    ).fetchone()
+    if row is None:
+        return None
+    return _as_datetime(row["timestamp"])
+
+
+def _as_datetime(value: object) -> datetime:
+    """Parse datetime-like values into timezone-aware datetimes."""
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    parsed = datetime.fromisoformat(str(value))
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def _optional_string(value: object) -> str | None:
+    """Return optional value as string."""
+    if value is None:
+        return None
+    return str(value)

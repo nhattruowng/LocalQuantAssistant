@@ -3,7 +3,7 @@ import { Button } from "@/components/forms/Button";
 import { MetricCard } from "@/components/cards/MetricCard";
 import { SignalCard } from "@/components/cards/SignalCard";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { useActions, useCandlesQuery } from "@/hooks/useApiQueries";
+import { useActions, useCandlesQuery, useRiskStatusQuery } from "@/hooks/useApiQueries";
 import { useSessionStore } from "@/hooks/useSessionStore";
 import { formatNumber, formatPercent } from "@/lib/utils";
 import type { TradeSetup } from "@/types";
@@ -22,12 +22,13 @@ export function DashboardPage({
   onBacktestRun,
 }: DashboardPageProps) {
   const candles = useCandlesQuery(200);
+  const riskStatus = useRiskStatusQuery();
   const actions = useActions();
   const { setLatestBacktest } = useSessionStore();
   const latestCandle = candles.data?.at(-1);
 
   const generate = async () => {
-    const setup = await actions.generateSignal.mutateAsync();
+    const setup = await actions.generateSignal.mutateAsync(undefined);
     onSignalGenerated(setup);
   };
 
@@ -76,6 +77,19 @@ export function DashboardPage({
           />
         </div>
       </div>
+      <section className="mt-4 rounded-lg border border-border bg-white p-4">
+        <div className="grid gap-4 md:grid-cols-4">
+          <MetricCard label="Circuit Breaker" value={riskStatus.data?.state ?? "-"} />
+          <MetricCard label="Open Positions" value={riskStatus.data?.open_positions ?? "-"} />
+          <MetricCard label="Daily Trades" value={riskStatus.data?.daily_trade_count ?? "-"} />
+          <MetricCard label="Daily DD" value={formatPercent(riskStatus.data?.daily_drawdown_pct)} />
+        </div>
+        {riskStatus.data?.state === "BLOCKED" || riskStatus.data?.state === "COOLDOWN" ? (
+          <p className="mt-3 text-sm font-medium text-red-600">
+            {riskStatus.data.reasons?.[0] ?? "Risk guard is blocking new signals."}
+          </p>
+        ) : null}
+      </section>
       {candles.isError ? <p className="mt-4 text-sm text-red-600">No data found or backend request failed.</p> : null}
     </div>
   );

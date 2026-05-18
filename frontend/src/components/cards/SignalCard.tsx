@@ -25,6 +25,10 @@ export function SignalCard({ setup }: SignalCardProps) {
         <strong>{setup.market_regime ?? "-"}</strong>
         <span>Strategy</span>
         <strong>{setup.strategy ?? "-"}</strong>
+        <span>Probability</span>
+        <strong>{setup.probability_source ?? "raw"}</strong>
+        <span>Model</span>
+        <strong>{setup.model_scope_used ? `${setup.model_scope_used} ${setup.model_version ?? ""}` : "-"}</strong>
       </div>
     </section>
   );

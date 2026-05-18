@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from api.routes import backtest, features, market, model, signals
+from api.routes import backtest, features, market, model, paper, risk, signals
 from api.schemas.responses import HealthResponse
 
 
@@ -55,6 +55,8 @@ app.include_router(features.router)
 app.include_router(signals.router)
 app.include_router(backtest.router)
 app.include_router(model.router)
+app.include_router(risk.router)
+app.include_router(paper.router)
 
 
 @app.get("/api/health", response_model=HealthResponse, tags=["system"])

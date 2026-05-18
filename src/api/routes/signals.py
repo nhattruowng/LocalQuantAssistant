@@ -25,6 +25,7 @@ def generate_signal(
         timeframe=request.timeframe,
         account_balance=request.account_balance,
         risk_percent=request.risk_percent,
+        multi_timeframe=request.multi_timeframe,
     )
 
 

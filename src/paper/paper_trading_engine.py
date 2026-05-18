@@ -152,9 +152,10 @@ class PaperTradingEngine:
                 take_profit_1,
                 take_profit_2,
                 position_size,
-                confidence
+                confidence,
+                market_regime
             )
-            VALUES (?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 setup.symbol,
@@ -168,6 +169,7 @@ class PaperTradingEngine:
                 float(setup.take_profit_2 or 0.0),
                 float(setup.position_size or 0.0),
                 setup.confidence,
+                setup.market_regime,
             ),
         )
         self._logger.info(
@@ -278,6 +280,7 @@ def _row_to_trade(row: sqlite3.Row) -> PaperTrade:
         take_profit_2=float(row["take_profit_2"]),
         position_size=float(row["position_size"]),
         confidence=float(row["confidence"]),
+        market_regime=str(row["market_regime"]) if "market_regime" in row.keys() else "UNKNOWN",
         exit_price=float(row["exit_price"]) if row["exit_price"] is not None else None,
         pnl=float(row["pnl"] or 0.0),
         result=str(row["result"]) if row["result"] else None,

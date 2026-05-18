@@ -2,7 +2,9 @@ import axios from "axios";
 import type {
   BacktestResponse,
   Candle,
+  ModelCalibration,
   ModelInfo,
+  RiskStatus,
   SignalHistory,
   TradeSetup,
 } from "@/types";
@@ -62,6 +64,7 @@ export async function generateSignal(params: {
   timeframe: string;
   account_balance: number;
   risk_percent: number;
+  multi_timeframe?: boolean;
 }) {
   const { data } = await apiClient.post<TradeSetup>("/api/signals/generate", params);
   return data;
@@ -84,8 +87,22 @@ export async function getLatestBacktest(symbol: string, timeframe: string) {
   return data;
 }
 
+export async function getRiskStatus(symbol: string, timeframe: string) {
+  const { data } = await apiClient.get<RiskStatus>("/api/risk/status", {
+    params: { symbol, timeframe },
+  });
+  return data;
+}
+
 export async function getModelInfo(symbol?: string, timeframe?: string) {
   const { data } = await apiClient.get<ModelInfo>("/api/model/info", {
+    params: { symbol, timeframe },
+  });
+  return data;
+}
+
+export async function getModelCalibration(symbol?: string, timeframe?: string) {
+  const { data } = await apiClient.get<ModelCalibration>("/api/model/calibration", {
     params: { symbol, timeframe },
   });
   return data;

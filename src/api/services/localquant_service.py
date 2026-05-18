@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 import json
@@ -19,7 +20,10 @@ from config.settings import Settings
 from database.candle_repository import CandleRepository
 from database.connection import create_database
 from features.feature_service import FeatureService
+from ml.model_registry import ModelRegistry
 from ml.model_trainer import ModelTrainer
+from paper.paper_trading_engine import PaperTradingEngine
+from risk.risk_guard import RiskGuard, RiskGuardContext
 
 
 class LocalQuantApiService:
@@ -98,6 +102,7 @@ class LocalQuantApiService:
         timeframe: str,
         account_balance: float,
         risk_percent: float,
+        multi_timeframe: bool | None = None,
     ) -> dict[str, object]:
         """Generate one trade setup."""
         setup = self._dashboard.generate_signal(
@@ -105,6 +110,7 @@ class LocalQuantApiService:
             timeframe=timeframe,
             account_balance=account_balance,
             risk_percent=_percent_to_decimal(risk_percent),
+            multi_timeframe=multi_timeframe,
         )
         return setup.to_dict()
 
@@ -137,21 +143,109 @@ class LocalQuantApiService:
             return None
         return _json_safe(json.loads(candidates[0].read_text(encoding="utf-8")))
 
+    def risk_status(self, symbol: str | None = None, timeframe: str | None = None) -> dict[str, object]:
+        """Return current risk guard and circuit breaker status."""
+        selected_symbol = symbol or self._settings.collector.symbols[0]
+        selected_timeframe = timeframe or self._settings.collector.timeframes[0]
+        database = create_database(self._settings.database)
+        database.initialize()
+        try:
+            account = PaperTradingEngine(
+                database=database,
+                settings=self._settings.paper_trading,
+                logger=self._logger,
+            ).load_account()
+            last_blocked = _latest_risk_event_at(database, selected_symbol, selected_timeframe)
+            context = RiskGuardContext(
+                now=_now_utc(),
+                initial_balance=account.initial_balance,
+                equity=account.equity,
+                open_positions=[
+                    trade
+                    for trade in account.open_positions
+                    if trade.symbol == selected_symbol and trade.timeframe == selected_timeframe
+                ],
+                closed_trades=[
+                    trade
+                    for trade in account.closed_trades
+                    if trade.symbol == selected_symbol and trade.timeframe == selected_timeframe
+                ],
+                snapshots=account.snapshots,
+                last_blocked_at=last_blocked,
+                regime_confidence_threshold=(
+                    self._settings.signal.strategy_ensemble.low_regime_confidence_threshold
+                    if self._settings.signal.strategy_ensemble is not None
+                    else 0.55
+                ),
+            )
+            status = RiskGuard(self._settings.risk_guard).status(context)
+            events = _latest_risk_events(database, selected_symbol, selected_timeframe)
+            return _json_safe({**status, "symbol": selected_symbol, "timeframe": selected_timeframe, "events": events})
+        finally:
+            database.close()
+
+    def paper_analytics(self, symbol: str, timeframe: str) -> dict[str, object]:
+        """Return paper trading analytics."""
+        return _json_safe(self._dashboard.load_paper_analytics(symbol, timeframe))
+
+    def paper_drawdown(self, symbol: str, timeframe: str) -> dict[str, object]:
+        """Return paper drawdown curve."""
+        analytics = self.paper_analytics(symbol, timeframe)
+        return {"drawdown_curve": analytics.get("drawdown_curve", [])}
+
+    def paper_regime_performance(self, symbol: str, timeframe: str) -> dict[str, object]:
+        """Return paper realized PnL by regime and strategy."""
+        analytics = self.paper_analytics(symbol, timeframe)
+        return {
+            "realized_pnl_by_regime": analytics.get("realized_pnl_by_regime", {}),
+            "realized_pnl_by_strategy": analytics.get("realized_pnl_by_strategy", {}),
+        }
+
     def model_info(self, symbol: str | None = None, timeframe: str | None = None) -> dict[str, object] | None:
         """Return latest model metadata."""
+        registry = ModelRegistry(self._settings.training.model_dir)
         if symbol and timeframe:
-            return _json_safe(self._dashboard.latest_model_metadata(symbol, timeframe))
-        candidates = sorted(
-            self._settings.training.model_dir.glob("*.metadata.json"),
-            key=lambda path: path.stat().st_mtime,
-            reverse=True,
-        )
-        if not candidates:
+            return _json_safe(registry.latest_metadata(symbol, timeframe))
+        records = registry.list_models()
+        if not records:
             return None
-        path = candidates[0]
-        metadata = json.loads(path.read_text(encoding="utf-8"))
-        metadata["metadata_path"] = str(path)
-        return _json_safe(metadata)
+        return _json_safe(max(records, key=lambda item: str(item.get("trained_at", ""))))
+
+    def model_calibration(
+        self,
+        symbol: str | None = None,
+        timeframe: str | None = None,
+    ) -> dict[str, object] | None:
+        """Return latest model calibration diagnostics."""
+        metadata = self.model_info(symbol=symbol, timeframe=timeframe)
+        if metadata is None:
+            return None
+        metrics = metadata.get("metrics", {})
+        calibration = metrics.get("calibration", {}) if isinstance(metrics, dict) else {}
+        before = calibration.get("before", {}) if isinstance(calibration, dict) else {}
+        after = calibration.get("after", {}) if isinstance(calibration, dict) else {}
+        return _json_safe(
+            {
+                "symbol": metadata.get("symbol"),
+                "timeframe": metadata.get("timeframe"),
+                "trained_at": metadata.get("trained_at"),
+                "calibration_enabled": metadata.get("calibration_enabled", False),
+                "calibration_method": metadata.get("calibration_method", "none"),
+                "brier_score_before": metadata.get("brier_score_before"),
+                "brier_score_after": metadata.get("brier_score_after"),
+                "log_loss_before": metadata.get("log_loss_before"),
+                "log_loss_after": metadata.get("log_loss_after"),
+                "expected_calibration_error_before": before.get("expected_calibration_error"),
+                "expected_calibration_error_after": after.get("expected_calibration_error"),
+                "per_class_brier_score_before": before.get("per_class_brier_score"),
+                "per_class_brier_score_after": after.get("per_class_brier_score"),
+                "reliability_curve_before": before.get("reliability_curve"),
+                "reliability_curve_after": after.get("reliability_curve"),
+                "probability_histogram_before": before.get("probability_histogram"),
+                "probability_histogram_after": after.get("probability_histogram"),
+                "report": calibration,
+            }
+        )
 
     def train_model(self, symbol: str, timeframe: str) -> dict[str, object]:
         """Train a local model and return result metadata."""
@@ -172,7 +266,26 @@ class LocalQuantApiService:
             "model_type": result.model_type,
             "metrics": result.metrics,
             "feature_columns": result.feature_columns,
+            "registry_report": result.registry_report,
         })
+
+    def model_registry(
+        self,
+        symbol: str | None = None,
+        timeframe: str | None = None,
+    ) -> dict[str, object]:
+        """Return model registry records."""
+        registry = ModelRegistry(self._settings.training.model_dir)
+        records = registry.list_models(symbol=symbol, timeframe=timeframe)
+        return _json_safe({"models": records, "total": len(records)})
+
+    def promote_model(self, model_id: str) -> dict[str, object]:
+        """Promote a model to champion."""
+        return _json_safe(ModelRegistry(self._settings.training.model_dir).promote(model_id))
+
+    def archive_model(self, model_id: str) -> dict[str, object]:
+        """Archive a model."""
+        return _json_safe(ModelRegistry(self._settings.training.model_dir).archive(model_id))
 
     def signal_history(self, symbol: str | None = None, timeframe: str | None = None) -> list[dict[str, object]]:
         """Return saved signal history filtered by symbol/timeframe."""
@@ -245,3 +358,55 @@ def _json_safe(value: Any) -> Any:
     if isinstance(value, list):
         return [_json_safe(item) for item in value]
     return value
+
+
+def _now_utc() -> datetime:
+    """Return current UTC timestamp."""
+    return datetime.now(UTC)
+
+
+def _latest_risk_event_at(database: object, symbol: str, timeframe: str) -> datetime | None:
+    """Return latest blocking risk event timestamp."""
+    row = database.execute(  # type: ignore[attr-defined]
+        """
+        SELECT timestamp
+        FROM risk_events
+        WHERE symbol = ? AND timeframe = ? AND state IN ('BLOCKED', 'COOLDOWN')
+        ORDER BY timestamp DESC
+        LIMIT 1
+        """,
+        (symbol, timeframe),
+    ).fetchone()
+    if row is None:
+        return None
+    return _parse_datetime(str(row["timestamp"]))
+
+
+def _latest_risk_events(database: object, symbol: str, timeframe: str) -> list[dict[str, object]]:
+    """Return latest persisted risk guard events."""
+    rows = database.execute(  # type: ignore[attr-defined]
+        """
+        SELECT timestamp, state, reason, symbol, timeframe
+        FROM risk_events
+        WHERE symbol = ? AND timeframe = ?
+        ORDER BY timestamp DESC
+        LIMIT 20
+        """,
+        (symbol, timeframe),
+    ).fetchall()
+    return [
+        {
+            "timestamp": row["timestamp"],
+            "state": row["state"],
+            "reason": row["reason"],
+            "symbol": row["symbol"],
+            "timeframe": row["timeframe"],
+        }
+        for row in rows
+    ]
+
+
+def _parse_datetime(value: str) -> datetime:
+    """Parse an ISO timestamp as timezone-aware UTC when needed."""
+    parsed = datetime.fromisoformat(value)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)

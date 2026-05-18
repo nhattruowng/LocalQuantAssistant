@@ -49,6 +49,8 @@ class MeanReversionStrategy(Strategy):
                 "RSI is oversold.",
                 "Close is near rolling support.",
             ],
+            score=_candidate_score(probability, 0.5, 1.0, max(0.0, min(context.feature("volume_ratio") / 1.2, 1.0))),
+            confidence=probability,
         )
 
     def _sell(self, context: SignalContext) -> StrategyDecision:
@@ -75,4 +77,11 @@ class MeanReversionStrategy(Strategy):
                 "RSI is overbought.",
                 "Close is near rolling resistance.",
             ],
+            score=_candidate_score(probability, 0.5, 1.0, max(0.0, min(context.feature("volume_ratio") / 1.2, 1.0))),
+            confidence=probability,
         )
+
+
+def _candidate_score(probability: float, trend: float, indicator: float, volume: float) -> float:
+    """Return a bounded strategy score."""
+    return round(max(0.0, min(probability * 0.5 + trend * 0.2 + indicator * 0.2 + volume * 0.1, 1.0)), 4)

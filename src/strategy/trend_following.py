@@ -52,6 +52,8 @@ class TrendFollowingStrategy(Strategy):
             indicator_score=1.0,
             volume_score=_volume_score(context.feature("volume_ratio")),
             reasons=reasons,
+            score=_candidate_score(probability, 1.0, 1.0, _volume_score(context.feature("volume_ratio"))),
+            confidence=probability,
         )
 
     def _sell(self, context: SignalContext) -> StrategyDecision:
@@ -81,9 +83,16 @@ class TrendFollowingStrategy(Strategy):
                 "EMA20 is below EMA50 and close is near/below EMA20.",
                 "RSI is in trend SELL range.",
             ],
+            score=_candidate_score(probability, 1.0, 1.0, _volume_score(context.feature("volume_ratio"))),
+            confidence=probability,
         )
 
 
 def _volume_score(volume_ratio: float) -> float:
     """Convert volume ratio into a bounded score."""
     return max(0.0, min(volume_ratio / 1.5, 1.0))
+
+
+def _candidate_score(probability: float, trend: float, indicator: float, volume: float) -> float:
+    """Return a bounded strategy score."""
+    return round(max(0.0, min(probability * 0.5 + trend * 0.2 + indicator * 0.2 + volume * 0.1, 1.0)), 4)

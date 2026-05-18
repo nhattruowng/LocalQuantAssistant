@@ -65,9 +65,22 @@ risk:
   take_profit_1_atr_multiplier: 2.0
   take_profit_2_atr_multiplier: 3.0
 
+risk_guard:
+  enabled: false
+  max_trades_per_day: 5
+  max_consecutive_losses: 3
+  max_daily_drawdown_pct: 0.05
+  max_weekly_drawdown_pct: 0.10
+  max_open_positions: 1
+  min_time_between_trades_minutes: 30
+  cooldown_minutes_after_block: 60
+  require_calibrated_model: false
+  block_low_regime_confidence: false
+
 signal:
   min_confidence: 0.55
   min_risk_reward: 2.0
+  use_calibrated_probability: true
   trend_probability_threshold: 0.65
   breakout_probability_threshold: 0.65
   mean_reversion_probability_threshold: 0.60
@@ -85,6 +98,17 @@ signal:
   indicator_score_weight: 0.20
   volume_score_weight: 0.10
   risk_reward_score_weight: 0.05
+  strategy_ensemble:
+    enabled: false
+    min_strategy_score: 0.55
+    conflict_margin: 0.10
+    low_regime_confidence_threshold: 0.55
+  multi_timeframe:
+    enabled: false
+    primary_timeframe: 15m
+    confirmation_timeframes: [1h, 4h]
+    conflict_penalty: 0.35
+    require_higher_tf_alignment: false
 
 labeling:
   lookahead_bars: 10
@@ -99,12 +123,41 @@ training:
   n_estimators: 300
   max_depth: null
   model_dir: models
+  validation:
+    method: time_split
+    n_splits: 5
+    train_window_bars: 500
+    validation_window_bars: 100
+    expanding_window: true
+    embargo_size: 0
+  calibration:
+    enabled: true
+    method: sigmoid
+    cv: prefit
+  regime_specific:
+    enabled: false
+    min_samples_per_regime: 200
+    allowed_regimes: [UPTREND, DOWNTREND, SIDEWAY, BREAKOUT_UP, BREAKOUT_DOWN]
+    min_validation_accuracy: 0.0
+  registry:
+    auto_promote_champion: true
 
 backtest:
   fee_rate: 0.001
   slippage_rate: 0.0005
   cooldown_bars_after_loss: 3
   max_holding_bars: 10
+  volatility_low_max: 0.01
+  volatility_normal_max: 0.025
+  volatility_high_max: 0.05
+  execution_cost:
+    model: fixed
+    fee_rate: 0.001
+    base_slippage_rate: 0.0005
+    stress_multiplier: 3.0
+    max_slippage_rate: 0.01
+    volatility_multiplier: 10.0
+    estimated_spread_rate: 0.0005
   output_dir: data/backtest
 
 notification:

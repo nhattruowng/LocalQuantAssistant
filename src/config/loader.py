@@ -17,6 +17,7 @@ from config.settings import (
     CollectorSettings,
     DatabaseSettings,
     DataSettings,
+    ExecutionCostSettings,
     FeatureSettings,
     FeatureToggleSettings,
     LabelingSettings,
@@ -25,10 +26,17 @@ from config.settings import (
     ModelSettings,
     NotificationSettings,
     PaperTradingSettings,
+    ModelRegistrySettings,
+    MultiTimeframeSettings,
+    RegimeSpecificTrainingSettings,
+    RiskGuardSettings,
     RiskSettings,
     Settings,
     SignalSettings,
+    StrategyEnsembleSettings,
+    TrainingCalibrationSettings,
     TrainingSettings,
+    TrainingValidationSettings,
 )
 
 
@@ -56,10 +64,34 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
     regime_config = raw_config.get("market_regime", {})
     model_config = raw_config.get("model", {})
     risk_config = raw_config.get("risk", {})
+    risk_guard_config = raw_config.get("risk_guard", {})
+    if not isinstance(risk_guard_config, dict):
+        risk_guard_config = {}
     signal_config = raw_config.get("signal", {})
+    strategy_ensemble_config = signal_config.get("strategy_ensemble", {})
+    if not isinstance(strategy_ensemble_config, dict):
+        strategy_ensemble_config = {}
+    multi_timeframe_config = signal_config.get("multi_timeframe", {})
+    if not isinstance(multi_timeframe_config, dict):
+        multi_timeframe_config = {}
     labeling_config = raw_config.get("labeling", {})
     training_config = raw_config.get("training", {})
+    training_validation_config = training_config.get("validation", {})
+    if not isinstance(training_validation_config, dict):
+        training_validation_config = training_config
+    training_calibration_config = training_config.get("calibration", {})
+    if not isinstance(training_calibration_config, dict):
+        training_calibration_config = {}
+    regime_specific_config = training_config.get("regime_specific", {})
+    if not isinstance(regime_specific_config, dict):
+        regime_specific_config = {}
+    training_registry_config = training_config.get("registry", {})
+    if not isinstance(training_registry_config, dict):
+        training_registry_config = {}
     backtest_config = raw_config.get("backtest", {})
+    execution_cost_config = backtest_config.get("execution_cost", {})
+    if not isinstance(execution_cost_config, dict):
+        execution_cost_config = backtest_config
     notification_config = raw_config.get("notification", {})
     paper_trading_config = raw_config.get("paper_trading", {})
 
@@ -171,9 +203,38 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
                 risk_config.get("take_profit_2_atr_multiplier", 3.0)
             ),
         ),
+        risk_guard=RiskGuardSettings(
+            enabled=bool(risk_guard_config.get("enabled", False)),
+            max_trades_per_day=int(risk_guard_config.get("max_trades_per_day", 5)),
+            max_consecutive_losses=int(
+                risk_guard_config.get("max_consecutive_losses", 3)
+            ),
+            max_daily_drawdown_pct=float(
+                risk_guard_config.get("max_daily_drawdown_pct", 0.05)
+            ),
+            max_weekly_drawdown_pct=float(
+                risk_guard_config.get("max_weekly_drawdown_pct", 0.10)
+            ),
+            max_open_positions=int(risk_guard_config.get("max_open_positions", 1)),
+            min_time_between_trades_minutes=int(
+                risk_guard_config.get("min_time_between_trades_minutes", 30)
+            ),
+            cooldown_minutes_after_block=int(
+                risk_guard_config.get("cooldown_minutes_after_block", 60)
+            ),
+            require_calibrated_model=bool(
+                risk_guard_config.get("require_calibrated_model", False)
+            ),
+            block_low_regime_confidence=bool(
+                risk_guard_config.get("block_low_regime_confidence", False)
+            ),
+        ),
         signal=SignalSettings(
             min_confidence=float(signal_config.get("min_confidence", 0.55)),
             min_risk_reward=float(signal_config.get("min_risk_reward", 2.0)),
+            use_calibrated_probability=bool(
+                signal_config.get("use_calibrated_probability", True)
+            ),
             trend_probability_threshold=float(
                 signal_config.get("trend_probability_threshold", 0.65)
             ),
@@ -209,6 +270,42 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
             risk_reward_score_weight=float(
                 signal_config.get("risk_reward_score_weight", 0.05)
             ),
+            strategy_ensemble=StrategyEnsembleSettings(
+                enabled=bool(strategy_ensemble_config.get("enabled", False)),
+                min_strategy_score=float(
+                    strategy_ensemble_config.get("min_strategy_score", 0.55)
+                ),
+                conflict_margin=float(
+                    strategy_ensemble_config.get("conflict_margin", 0.10)
+                ),
+                low_regime_confidence_threshold=float(
+                    strategy_ensemble_config.get(
+                        "low_regime_confidence_threshold",
+                        0.55,
+                    )
+                ),
+            ),
+            multi_timeframe=MultiTimeframeSettings(
+                enabled=bool(multi_timeframe_config.get("enabled", False)),
+                primary_timeframe=str(
+                    multi_timeframe_config.get("primary_timeframe", "15m")
+                ),
+                confirmation_timeframes=_as_tuple(
+                    multi_timeframe_config.get(
+                        "confirmation_timeframes",
+                        ["1h", "4h"],
+                    )
+                ),
+                conflict_penalty=float(
+                    multi_timeframe_config.get("conflict_penalty", 0.35)
+                ),
+                require_higher_tf_alignment=bool(
+                    multi_timeframe_config.get(
+                        "require_higher_tf_alignment",
+                        False,
+                    )
+                ),
+            ),
         ),
         labeling=LabelingSettings(
             lookahead_bars=int(labeling_config.get("lookahead_bars", 10)),
@@ -227,6 +324,53 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
             n_estimators=int(training_config.get("n_estimators", 300)),
             max_depth=_optional_int(training_config.get("max_depth", None)),
             model_dir=_resolve_path(training_config.get("model_dir", "models"), base_dir),
+            validation=TrainingValidationSettings(
+                method=str(training_validation_config.get("method", "time_split")),
+                n_splits=int(training_validation_config.get("n_splits", 5)),
+                train_window_bars=int(
+                    training_validation_config.get("train_window_bars", 500)
+                ),
+                validation_window_bars=int(
+                    training_validation_config.get("validation_window_bars", 100)
+                ),
+                expanding_window=bool(
+                    training_validation_config.get("expanding_window", True)
+                ),
+                embargo_size=int(training_validation_config.get("embargo_size", 0)),
+            ),
+            calibration=TrainingCalibrationSettings(
+                enabled=bool(training_calibration_config.get("enabled", False)),
+                method=str(training_calibration_config.get("method", "sigmoid")),
+                cv=_parse_calibration_cv(
+                    training_calibration_config.get("cv", "prefit")
+                ),
+            ),
+            regime_specific=RegimeSpecificTrainingSettings(
+                enabled=bool(regime_specific_config.get("enabled", False)),
+                min_samples_per_regime=int(
+                    regime_specific_config.get("min_samples_per_regime", 200)
+                ),
+                allowed_regimes=_as_tuple(
+                    regime_specific_config.get(
+                        "allowed_regimes",
+                        [
+                            "UPTREND",
+                            "DOWNTREND",
+                            "SIDEWAY",
+                            "BREAKOUT_UP",
+                            "BREAKOUT_DOWN",
+                        ],
+                    )
+                ),
+                min_validation_accuracy=float(
+                    regime_specific_config.get("min_validation_accuracy", 0.0)
+                ),
+            ),
+            registry=ModelRegistrySettings(
+                auto_promote_champion=bool(
+                    training_registry_config.get("auto_promote_champion", True)
+                ),
+            ),
         ),
         backtest=BacktestSettings(
             fee_rate=float(backtest_config.get("fee_rate", 0.001)),
@@ -236,6 +380,42 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
             ),
             max_holding_bars=int(backtest_config.get("max_holding_bars", 10)),
             output_dir=_resolve_path(backtest_config.get("output_dir", "data/backtest"), base_dir),
+            volatility_low_max=float(backtest_config.get("volatility_low_max", 0.01)),
+            volatility_normal_max=float(backtest_config.get("volatility_normal_max", 0.025)),
+            volatility_high_max=float(backtest_config.get("volatility_high_max", 0.05)),
+            execution_cost=ExecutionCostSettings(
+                model=str(execution_cost_config.get("model", "fixed")),
+                fee_rate=float(
+                    execution_cost_config.get(
+                        "fee_rate",
+                        backtest_config.get("fee_rate", 0.001),
+                    )
+                ),
+                base_slippage_rate=float(
+                    execution_cost_config.get(
+                        "base_slippage_rate",
+                        backtest_config.get("slippage_rate", 0.0005),
+                    )
+                ),
+                stress_multiplier=float(
+                    execution_cost_config.get("stress_multiplier", 3.0)
+                ),
+                max_slippage_rate=float(
+                    execution_cost_config.get("max_slippage_rate", 0.01)
+                ),
+                volatility_multiplier=float(
+                    execution_cost_config.get("volatility_multiplier", 10.0)
+                ),
+                estimated_spread_rate=float(
+                    execution_cost_config.get(
+                        "estimated_spread_rate",
+                        execution_cost_config.get(
+                            "base_slippage_rate",
+                            backtest_config.get("slippage_rate", 0.0005),
+                        ),
+                    )
+                ),
+            ),
         ),
         notification=NotificationSettings(
             enabled=bool(notification_config.get("enabled", False)),
@@ -273,29 +453,32 @@ def _read_yaml(path: Path) -> dict[str, Any]:
 
 
 def _read_simple_yaml(content: str) -> dict[str, Any]:
-    """Parse the small nested mapping format used by the default config."""
+    """Parse the nested mapping subset used by the default config."""
     parsed: dict[str, Any] = {}
-    current_section: str | None = None
+    stack: list[tuple[int, dict[str, Any]]] = [(-1, parsed)]
 
     for raw_line in content.splitlines():
         line = raw_line.split("#", maxsplit=1)[0].rstrip()
         if not line:
             continue
+        if ":" not in line:
+            raise ValueError("Only simple YAML mappings are supported.")
 
-        if not raw_line.startswith(" "):
-            key = line.removesuffix(":")
-            parsed[key] = {}
-            current_section = key
-            continue
-
-        if current_section is None or ":" not in line:
-            raise ValueError("Only simple nested YAML mappings are supported.")
-
+        indent = len(raw_line) - len(raw_line.lstrip(" "))
         key, value = line.strip().split(":", maxsplit=1)
-        section = parsed[current_section]
-        if not isinstance(section, dict):
-            raise ValueError("Invalid YAML section.")
-        section[key] = _parse_scalar(value.strip())
+        while stack and indent <= stack[-1][0]:
+            stack.pop()
+        if not stack:
+            raise ValueError("Invalid YAML indentation.")
+
+        parent = stack[-1][1]
+        value = value.strip()
+        if value == "":
+            child: dict[str, Any] = {}
+            parent[key] = child
+            stack.append((indent, child))
+        else:
+            parent[key] = _parse_scalar(value)
 
     return parsed
 
@@ -355,6 +538,13 @@ def _optional_int(value: Any) -> int | None:
     return int(value)
 
 
+def _parse_calibration_cv(value: Any) -> str | int:
+    """Parse calibration CV config."""
+    if isinstance(value, str) and value.strip().lower() == "prefit":
+        return "prefit"
+    return int(value)
+
+
 def _optional_env(key: str) -> str | None:
     """Return a non-empty environment variable value."""
     value = os.getenv(key)
@@ -376,14 +566,93 @@ def _validate_settings(settings: Settings) -> None:
         raise ValueError("Training and validation ratios must be positive.")
     if settings.training.test_ratio <= 0:
         raise ValueError("Test ratio must be positive.")
+    if settings.training.validation.method not in {"time_split", "walk_forward"}:
+        raise ValueError("Training validation method must be time_split or walk_forward.")
+    if settings.training.validation.n_splits <= 0:
+        raise ValueError("Training validation n_splits must be positive.")
+    if settings.training.validation.train_window_bars <= 0:
+        raise ValueError("Training validation train_window_bars must be positive.")
+    if settings.training.validation.validation_window_bars <= 0:
+        raise ValueError("Training validation validation_window_bars must be positive.")
+    if settings.training.validation.embargo_size < 0:
+        raise ValueError("Training validation embargo_size must be non-negative.")
+    if settings.training.calibration.method not in {"none", "sigmoid", "isotonic"}:
+        raise ValueError("Training calibration method must be none, sigmoid, or isotonic.")
+    calibration_cv = settings.training.calibration.cv
+    if calibration_cv != "prefit" and int(calibration_cv) < 2:
+        raise ValueError("Training calibration cv must be prefit or at least 2.")
+    if settings.training.regime_specific.min_samples_per_regime <= 0:
+        raise ValueError("Regime-specific min_samples_per_regime must be positive.")
+    if (
+        settings.training.regime_specific.min_validation_accuracy < 0
+        or settings.training.regime_specific.min_validation_accuracy > 1
+    ):
+        raise ValueError("Regime-specific min_validation_accuracy must be between 0 and 1.")
     if settings.backtest.fee_rate < 0 or settings.backtest.slippage_rate < 0:
         raise ValueError("Backtest fee and slippage rates must be non-negative.")
+    if settings.backtest.execution_cost is None:
+        raise ValueError("Backtest execution_cost settings must be present.")
+    if settings.backtest.execution_cost.model not in {
+        "fixed",
+        "volatility_adjusted",
+        "spread_aware",
+        "stress",
+    }:
+        raise ValueError("Backtest execution cost model is not supported.")
+    if (
+        settings.backtest.execution_cost.fee_rate < 0
+        or settings.backtest.execution_cost.base_slippage_rate < 0
+        or settings.backtest.execution_cost.max_slippage_rate < 0
+    ):
+        raise ValueError("Backtest execution cost rates must be non-negative.")
+    if settings.backtest.execution_cost.stress_multiplier < 0:
+        raise ValueError("Backtest stress_multiplier must be non-negative.")
     if settings.backtest.max_holding_bars <= 0:
         raise ValueError("Backtest max_holding_bars must be positive.")
+    if not (
+        0
+        <= settings.backtest.volatility_low_max
+        < settings.backtest.volatility_normal_max
+        < settings.backtest.volatility_high_max
+    ):
+        raise ValueError("Backtest volatility bucket thresholds must be increasing.")
     if settings.risk.account_balance < 0 or settings.risk.risk_per_trade_pct < 0:
         raise ValueError("Risk account balance and risk percent must be non-negative.")
+    if settings.risk_guard.max_trades_per_day <= 0:
+        raise ValueError("Risk guard max_trades_per_day must be positive.")
+    if settings.risk_guard.max_consecutive_losses <= 0:
+        raise ValueError("Risk guard max_consecutive_losses must be positive.")
+    if settings.risk_guard.max_daily_drawdown_pct < 0:
+        raise ValueError("Risk guard max_daily_drawdown_pct must be non-negative.")
+    if settings.risk_guard.max_weekly_drawdown_pct < 0:
+        raise ValueError("Risk guard max_weekly_drawdown_pct must be non-negative.")
+    if settings.risk_guard.max_open_positions < 0:
+        raise ValueError("Risk guard max_open_positions must be non-negative.")
+    if settings.risk_guard.min_time_between_trades_minutes < 0:
+        raise ValueError("Risk guard min_time_between_trades_minutes must be non-negative.")
+    if settings.risk_guard.cooldown_minutes_after_block < 0:
+        raise ValueError("Risk guard cooldown_minutes_after_block must be non-negative.")
     if settings.notification.min_confidence < 0 or settings.notification.min_confidence > 1:
         raise ValueError("Notification min_confidence must be between 0 and 1.")
+    ensemble = settings.signal.strategy_ensemble
+    if ensemble is None:
+        raise ValueError("Signal strategy_ensemble settings must be present.")
+    if ensemble.min_strategy_score < 0 or ensemble.min_strategy_score > 1:
+        raise ValueError("Strategy ensemble min_strategy_score must be between 0 and 1.")
+    if ensemble.conflict_margin < 0:
+        raise ValueError("Strategy ensemble conflict_margin must be non-negative.")
+    if (
+        ensemble.low_regime_confidence_threshold < 0
+        or ensemble.low_regime_confidence_threshold > 1
+    ):
+        raise ValueError("Strategy ensemble low_regime_confidence_threshold must be between 0 and 1.")
+    multi_timeframe = settings.signal.multi_timeframe
+    if multi_timeframe is None:
+        raise ValueError("Signal multi_timeframe settings must be present.")
+    if not multi_timeframe.primary_timeframe:
+        raise ValueError("Signal multi_timeframe primary_timeframe must be non-empty.")
+    if multi_timeframe.conflict_penalty < 0 or multi_timeframe.conflict_penalty > 1:
+        raise ValueError("Signal multi_timeframe conflict_penalty must be between 0 and 1.")
     if settings.notification.min_risk_reward < 0:
         raise ValueError("Notification min_risk_reward must be non-negative.")
     if settings.notification.cooldown_seconds < 0:

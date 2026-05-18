@@ -49,16 +49,15 @@ class DatasetBuilder:
 
     def build(self, labeled_features: pd.DataFrame) -> DatasetSplit:
         """Create train/validation/test split from labeled features."""
-        self._validate_input(labeled_features)
-        dataset = labeled_features.copy(deep=True)
-        if "label_lookahead_complete" in dataset:
-            dataset = dataset[dataset["label_lookahead_complete"]]
-        dataset = dataset[dataset["label"].isin(TARGET_LABELS)]
-        feature_columns = self._select_feature_columns(dataset)
-        dataset = dataset.dropna(subset=feature_columns + ["label"]).reset_index(drop=True)
-        if len(dataset) < 10:
-            raise ValueError("Not enough labeled rows after dropping missing feature values.")
+        dataset, feature_columns = self.prepare(labeled_features)
+        return self.build_from_prepared(dataset, feature_columns)
 
+    def build_from_prepared(
+        self,
+        dataset: pd.DataFrame,
+        feature_columns: list[str],
+    ) -> DatasetSplit:
+        """Create train/validation/test split from prepared labeled rows."""
         train_end, validation_end = self._split_indices(len(dataset))
         x = dataset[feature_columns]
         y = dataset["label"]
@@ -71,6 +70,21 @@ class DatasetBuilder:
             y_test=y.iloc[validation_end:].reset_index(drop=True),
             feature_columns=feature_columns,
         )
+
+    def prepare(self, labeled_features: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+        """Return cleaned labeled rows and selected feature columns."""
+        self._validate_input(labeled_features)
+        dataset = labeled_features.copy(deep=True)
+        if "timestamp" in dataset:
+            dataset = dataset.sort_values("timestamp")
+        if "label_lookahead_complete" in dataset:
+            dataset = dataset[dataset["label_lookahead_complete"]]
+        dataset = dataset[dataset["label"].isin(TARGET_LABELS)]
+        feature_columns = self._select_feature_columns(dataset)
+        dataset = dataset.dropna(subset=feature_columns + ["label"]).reset_index(drop=True)
+        if len(dataset) < 10:
+            raise ValueError("Not enough labeled rows after dropping missing feature values.")
+        return dataset, feature_columns
 
     def _validate_input(self, labeled_features: pd.DataFrame) -> None:
         """Validate labeled feature DataFrame."""

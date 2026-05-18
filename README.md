@@ -21,9 +21,10 @@ Mọi tín hiệu từ hệ thống chỉ là gợi ý phân tích. Người dù
 - Technical indicator engineering bằng pandas vectorized operations.
 - Price action, trend, momentum, volatility và volume features.
 - Market regime detection: `UPTREND`, `DOWNTREND`, `SIDEWAY`, `BREAKOUT_UP`, `BREAKOUT_DOWN`, `HIGH_VOLATILITY`, `LOW_VOLATILITY`, `UNKNOWN`.
+- Soft regime scoring và optional strategy ensemble để giảm phụ thuộc vào mapping cứng regime -> strategy.
 - ML-based `BUY` / `SELL` / `WAIT` classification bằng XGBoost nếu có, fallback RandomForest.
 - TP/SL first-touch labeling để tránh label quá đơn giản.
-- Chronological train/validation/test split, không shuffle time-series.
+- Chronological train/validation/test split, hỗ trợ walk-forward validation và purged CV, không shuffle time-series.
 - Risk-aware setup recommendation với entry, stop loss, take profit, risk/reward và position size.
 - Explainable AI cho tín hiệu bằng SHAP nếu khả dụng, fallback bằng model feature importance.
 - Strategy layer: Trend Following, Breakout Confirmation, Mean Reversion.
@@ -292,14 +293,88 @@ Training pipeline:
 1. Load candles từ SQLite.
 2. Build technical features.
 3. Generate TP/SL first-touch labels.
-4. Split theo thời gian: train 70%, validation 15%, test 15%.
-5. Train XGBoost nếu khả dụng, nếu không fallback RandomForest.
-6. Save model `.joblib` và metadata `.metadata.json` vào `models/`.
+4. Split theo thời gian: train 70%, validation 15%, test 15% theo mặc định.
+5. Nếu `training.validation.method = walk_forward`, chạy walk-forward validation với purge size mặc định bằng `labeling.lookahead_bars`.
+6. Train XGBoost nếu khả dụng, nếu không fallback RandomForest.
+7. Calibrate probability bằng validation set nếu `training.calibration.enabled = true`.
+8. Save model vào versioned registry trong `models/{symbol}/{timeframe}/...`.
+9. Nếu `training.regime_specific.enabled = true`, train thêm model theo từng market regime đủ sample.
+
+Walk-forward config:
+
+```yaml
+training:
+  validation:
+    method: walk_forward
+    n_splits: 5
+    train_window_bars: 500
+    validation_window_bars: 100
+    expanding_window: true
+    embargo_size: 0
+```
+
+Metadata model lưu thêm `validation_method`, `fold_metrics`, `purge_size`, `embargo_size`, `dataset_start`, `dataset_end` và summary như `mean_accuracy`, `std_accuracy`, `mean_f1`, `worst_fold_metric`.
+
+Model registry layout:
+
+```text
+models/
+  BTC_USDT/
+    15m/
+      global/
+        v001/
+          model.joblib
+          metadata.json
+      regime/
+        UPTREND/
+          v001/
+            model.joblib
+            metadata.json
+```
+
+Registry metadata gồm `model_id`, `model_version`, `model_scope`, `regime`, `symbol`, `timeframe`, `trained_at`, `dataset_start`, `dataset_end`, `feature_columns`, `label_distribution`, `validation_metrics`, `calibration_metrics` và `status`.
+
+Probability calibration config:
+
+```yaml
+training:
+  calibration:
+    enabled: true
+    method: sigmoid   # sigmoid hoặc isotonic
+    cv: prefit
+
+signal:
+  use_calibrated_probability: true
+```
+
+Khi bật calibration, trainer train base model trên train set, fit calibrator trên validation set, sau đó lưu wrapper model. Metadata có `calibration_enabled`, `calibration_method`, `brier_score_before`, `brier_score_after`, `log_loss_before`, `log_loss_after`, reliability curve data, per-class Brier score và probability histogram. Nếu calibration không khả dụng, hệ thống fallback về raw probability và ghi rõ trong metadata/UI.
+
+Regime-specific model config:
+
+```yaml
+training:
+  regime_specific:
+    enabled: true
+    min_samples_per_regime: 200
+    allowed_regimes: [UPTREND, DOWNTREND, SIDEWAY, BREAKOUT_UP, BREAKOUT_DOWN]
+    min_validation_accuracy: 0.0
+  registry:
+    auto_promote_champion: true
+```
+
+Khi prediction, `PredictionService` ưu tiên regime-specific champion nếu tồn tại và đạt quality threshold. Nếu không có model phù hợp, hệ thống fallback về global champion và trả `fallback_reason`.
 
 ### 4. Backtest
 
 ```powershell
 python main.py backtest --symbol BTC/USDT --timeframe 15m --model models/model.joblib
+```
+
+Rule-only backtest hoặc override execution cost model:
+
+```powershell
+python main.py backtest --symbol BTC/USDT --timeframe 15m --cost-model stress
+python main.py backtest-stress --symbol BTC/USDT --timeframe 15m
 ```
 
 Nếu metadata không nằm cạnh model:
@@ -378,6 +453,11 @@ GET  /api/signals/history?symbol=BTC/USDT&timeframe=15m
 POST /api/backtest/run
 GET  /api/backtest/latest?symbol=BTC/USDT&timeframe=15m
 GET  /api/model/info
+GET  /api/model/calibration
+GET  /api/model/registry
+GET  /api/model/registry/BTC_USDT/15m
+POST /api/model/promote
+POST /api/model/archive
 POST /api/model/train
 ```
 
@@ -420,6 +500,25 @@ make docker-test
 
 ## Example Signal Output
 
+Strategy selection mặc định vẫn dùng mapping cũ để backward-compatible:
+
+- `UPTREND` / `DOWNTREND` -> `TREND_FOLLOWING`
+- `BREAKOUT_UP` / `BREAKOUT_DOWN` -> `BREAKOUT_CONFIRMATION`
+- `SIDEWAY` -> `MEAN_REVERSION`
+
+Có thể bật strategy ensemble trong `settings.yaml`:
+
+```yaml
+signal:
+  strategy_ensemble:
+    enabled: true
+    min_strategy_score: 0.55
+    conflict_margin: 0.10
+    low_regime_confidence_threshold: 0.55
+```
+
+Khi ensemble được bật, SignalEngine đánh giá nhiều strategy candidate, chọn strategy có score cao nhất nếu vượt threshold, trả `WAIT` nếu BUY/SELL conflict với margin thấp, và giảm confidence nếu regime confidence thấp hoặc có transition warning.
+
 ```json
 {
   "symbol": "BTC/USDT",
@@ -429,6 +528,20 @@ make docker-test
   "signal": "BUY",
   "strategy": "TREND_FOLLOWING",
   "confidence": 0.72,
+  "probability_source": "calibrated",
+  "model_scope_used": "regime_specific",
+  "model_version": "v003",
+  "fallback_reason": null,
+  "raw_probabilities": {
+    "BUY": 0.68,
+    "SELL": 0.12,
+    "WAIT": 0.20
+  },
+  "calibrated_probabilities": {
+    "BUY": 0.72,
+    "SELL": 0.10,
+    "WAIT": 0.18
+  },
   "entry": 65000.0,
   "stop_loss": 64200.0,
   "take_profit_1": 66600.0,
@@ -453,7 +566,7 @@ Các giả định chính:
 - Signal được tạo tại candle close.
 - Mô phỏng entry/exit từ candle tiếp theo.
 - Nếu cùng một candle chạm cả TP và SL, conservative mode tính SL trước.
-- Fee và slippage được cấu hình trong `settings.yaml`.
+- Fee/slippage/spread được mô phỏng qua execution cost model trong `settings.yaml`.
 - Sau một lệnh thua, hệ thống chờ cooldown trước khi vào lệnh mới.
 
 Metrics:
@@ -478,7 +591,20 @@ Outputs:
 
 - Trades CSV trong `data/backtest/`.
 - Summary JSON trong `data/backtest/`.
+- Full JSON và HTML report trong `data/backtest/`.
 - `BacktestReport` object dùng cho dashboard.
+
+Execution cost config:
+
+```yaml
+backtest:
+  execution_cost:
+    model: fixed  # fixed | volatility_adjusted | spread_aware | stress
+    fee_rate: 0.001
+    base_slippage_rate: 0.0005
+    stress_multiplier: 3.0
+    max_slippage_rate: 0.01
+```
 
 ## Dashboard
 
@@ -487,7 +613,7 @@ Streamlit dashboard gồm các tab:
 - `Market`: candlestick chart, EMA, volume, RSI, market regime.
 - `Signal`: signal card, confidence, entry, stop loss, take profit, risk/reward, position size, reasons, và top positive/negative model factors khi có model explainability.
 - `Backtest`: metrics cards, equity curve, trade history.
-- `Model`: model type, trained time, feature count, metrics, feature importance và explainability notes.
+- `Model`: model type, trained time, feature count, calibration metrics, feature importance và explainability notes.
 - `History`: lịch sử signal local với filter.
 - `Paper Trading`: balance, equity, open positions, closed trades và equity curve mô phỏng.
 

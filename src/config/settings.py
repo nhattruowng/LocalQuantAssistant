@@ -114,11 +114,49 @@ class RiskSettings:
 
 
 @dataclass(frozen=True)
+class RiskGuardSettings:
+    """Risk guard and circuit breaker settings."""
+
+    enabled: bool = False
+    max_trades_per_day: int = 5
+    max_consecutive_losses: int = 3
+    max_daily_drawdown_pct: float = 0.05
+    max_weekly_drawdown_pct: float = 0.10
+    max_open_positions: int = 1
+    min_time_between_trades_minutes: int = 30
+    cooldown_minutes_after_block: int = 60
+    require_calibrated_model: bool = False
+    block_low_regime_confidence: bool = False
+
+
+@dataclass(frozen=True)
+class StrategyEnsembleSettings:
+    """Strategy ensemble decision settings."""
+
+    enabled: bool = False
+    min_strategy_score: float = 0.55
+    conflict_margin: float = 0.10
+    low_regime_confidence_threshold: float = 0.55
+
+
+@dataclass(frozen=True)
+class MultiTimeframeSettings:
+    """Higher timeframe confirmation settings for signal generation."""
+
+    enabled: bool = False
+    primary_timeframe: str = "15m"
+    confirmation_timeframes: tuple[str, ...] = ("1h", "4h")
+    conflict_penalty: float = 0.35
+    require_higher_tf_alignment: bool = False
+
+
+@dataclass(frozen=True)
 class SignalSettings:
     """Signal decision settings."""
 
     min_confidence: float
     min_risk_reward: float
+    use_calibrated_probability: bool = True
     trend_probability_threshold: float = 0.65
     breakout_probability_threshold: float = 0.65
     mean_reversion_probability_threshold: float = 0.60
@@ -136,6 +174,8 @@ class SignalSettings:
     indicator_score_weight: float = 0.20
     volume_score_weight: float = 0.10
     risk_reward_score_weight: float = 0.05
+    strategy_ensemble: StrategyEnsembleSettings | None = None
+    multi_timeframe: MultiTimeframeSettings | None = None
 
 
 @dataclass(frozen=True)
@@ -145,6 +185,44 @@ class LabelingSettings:
     lookahead_bars: int
     stop_loss_atr_multiplier: float
     take_profit_atr_multiplier: float
+
+
+@dataclass(frozen=True)
+class TrainingValidationSettings:
+    """Time-series validation settings."""
+
+    method: str = "time_split"
+    n_splits: int = 5
+    train_window_bars: int = 500
+    validation_window_bars: int = 100
+    expanding_window: bool = True
+    embargo_size: int = 0
+
+
+@dataclass(frozen=True)
+class TrainingCalibrationSettings:
+    """Probability calibration settings for trained classifiers."""
+
+    enabled: bool = False
+    method: str = "sigmoid"
+    cv: str | int = "prefit"
+
+
+@dataclass(frozen=True)
+class RegimeSpecificTrainingSettings:
+    """Settings for optional regime-specific model training."""
+
+    enabled: bool = False
+    min_samples_per_regime: int = 200
+    allowed_regimes: tuple[str, ...] = ()
+    min_validation_accuracy: float = 0.0
+
+
+@dataclass(frozen=True)
+class ModelRegistrySettings:
+    """Settings for model registry lifecycle behavior."""
+
+    auto_promote_champion: bool = True
 
 
 @dataclass(frozen=True)
@@ -158,6 +236,23 @@ class TrainingSettings:
     n_estimators: int
     max_depth: int | None
     model_dir: Path
+    validation: TrainingValidationSettings
+    calibration: TrainingCalibrationSettings
+    regime_specific: RegimeSpecificTrainingSettings
+    registry: ModelRegistrySettings
+
+
+@dataclass(frozen=True)
+class ExecutionCostSettings:
+    """Execution cost model settings for backtests."""
+
+    model: str = "fixed"
+    fee_rate: float = 0.001
+    base_slippage_rate: float = 0.0005
+    stress_multiplier: float = 3.0
+    max_slippage_rate: float = 0.01
+    volatility_multiplier: float = 10.0
+    estimated_spread_rate: float = 0.0005
 
 
 @dataclass(frozen=True)
@@ -169,6 +264,10 @@ class BacktestSettings:
     cooldown_bars_after_loss: int
     max_holding_bars: int
     output_dir: Path
+    volatility_low_max: float = 0.01
+    volatility_normal_max: float = 0.025
+    volatility_high_max: float = 0.05
+    execution_cost: ExecutionCostSettings | None = None
 
 
 @dataclass(frozen=True)
@@ -206,6 +305,7 @@ class Settings:
     market_regime: MarketRegimeSettings
     model: ModelSettings
     risk: RiskSettings
+    risk_guard: RiskGuardSettings
     signal: SignalSettings
     labeling: LabelingSettings
     training: TrainingSettings

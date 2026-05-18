@@ -1,9 +1,9 @@
-import { Brain } from "lucide-react";
+import { AlertTriangle, Brain } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { MetricCard } from "@/components/cards/MetricCard";
 import { Button } from "@/components/forms/Button";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { useActions, useModelInfoQuery } from "@/hooks/useApiQueries";
+import { useActions, useModelCalibrationQuery, useModelInfoQuery } from "@/hooks/useApiQueries";
 import { formatNumber } from "@/lib/utils";
 
 function featureImportance(metrics?: Record<string, unknown>) {
@@ -18,8 +18,10 @@ function featureImportance(metrics?: Record<string, unknown>) {
 
 export function ModelPage() {
   const model = useModelInfoQuery();
+  const calibration = useModelCalibrationQuery();
   const actions = useActions();
   const info = model.data;
+  const calibrationInfo = calibration.data;
   const importance = featureImportance(info?.metrics);
 
   return (
@@ -39,6 +41,9 @@ export function ModelPage() {
         <MetricCard label="Model Type" value={info?.model_type ?? "-"} />
         <MetricCard label="Trained At" value={info?.trained_at ?? "-"} />
         <MetricCard label="Feature Count" value={info?.feature_columns?.length ?? "-"} />
+        <MetricCard label="Version" value={info?.model_version ?? "-"} />
+        <MetricCard label="Scope" value={info?.model_scope ?? "global"} />
+        <MetricCard label="Status" value={info?.status ?? "-"} />
         <MetricCard label="Accuracy" value={formatNumber(Number(info?.metrics?.accuracy), 4)} />
       </div>
       <section className="rounded-lg border border-border bg-white p-4">
@@ -58,6 +63,28 @@ export function ModelPage() {
         ) : (
           <p className="text-sm text-muted-foreground">No feature importance available.</p>
         )}
+      </section>
+      <section className="mt-4 rounded-lg border border-border bg-white p-4">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h3 className="text-sm font-semibold">Model Calibration</h3>
+          <span className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
+            {calibrationInfo?.calibration_method ?? "none"}
+          </span>
+        </div>
+        {calibration.isError || !calibrationInfo?.calibration_enabled ? (
+          <div className="mb-4 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            <AlertTriangle className="h-4 w-4" />
+            Model probabilities are not calibrated yet. Signal confidence may be raw model output.
+          </div>
+        ) : null}
+        <div className="grid gap-4 md:grid-cols-4">
+          <MetricCard label="Brier Before" value={formatNumber(Number(calibrationInfo?.brier_score_before), 4)} />
+          <MetricCard label="Brier After" value={formatNumber(Number(calibrationInfo?.brier_score_after), 4)} />
+          <MetricCard label="Log Loss Before" value={formatNumber(Number(calibrationInfo?.log_loss_before), 4)} />
+          <MetricCard label="Log Loss After" value={formatNumber(Number(calibrationInfo?.log_loss_after), 4)} />
+          <MetricCard label="ECE Before" value={formatNumber(Number(calibrationInfo?.expected_calibration_error_before), 4)} />
+          <MetricCard label="ECE After" value={formatNumber(Number(calibrationInfo?.expected_calibration_error_after), 4)} />
+        </div>
       </section>
       <section className="mt-4 rounded-lg border border-border bg-white p-4">
         <h3 className="mb-3 text-sm font-semibold">Metrics</h3>

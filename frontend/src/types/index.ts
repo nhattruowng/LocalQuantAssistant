@@ -36,6 +36,59 @@ export interface Explainability {
   summary: string;
 }
 
+export interface StructuredExplanation {
+  final_decision: SignalType;
+  summary: string;
+  regime: {
+    primary?: string;
+    confidence?: number;
+    transition_warning?: boolean;
+    higher_timeframes?: Array<Record<string, unknown>>;
+  };
+  strategy: {
+    selected?: StrategyType;
+    selected_score?: number | null;
+    passed_conditions?: string[];
+    failed_conditions?: string[];
+    rejected_strategies?: Array<Record<string, unknown>>;
+  };
+  risk: {
+    risk_reward?: number | null;
+    position_size?: number | null;
+    risk_notes?: string[];
+  };
+  model: {
+    probability_source?: string;
+    buy_probability?: number;
+    sell_probability?: number;
+    wait_probability?: number;
+    raw_probabilities?: Partial<Record<SignalType, number>> | null;
+    calibrated_probabilities?: Partial<Record<SignalType, number>> | null;
+  };
+  multi_timeframe: {
+    enabled?: boolean;
+    primary_timeframe?: string;
+    confirmation_timeframes?: string[];
+    missing_timeframes?: string[];
+    confirmations?: Array<{
+      timeframe?: string;
+      regime?: string;
+      confidence?: number;
+      aligned?: boolean;
+      conflict?: boolean;
+      volume_ratio?: number;
+      atr_percent?: number;
+      breakout_confirmed?: boolean;
+    }>;
+    conflict?: boolean;
+    aligned_timeframes?: string[];
+    confidence_multiplier?: number;
+    blocked?: boolean;
+    reasons?: string[];
+  };
+  final_decision_summary: string;
+}
+
 export interface TradeSetup {
   symbol: string;
   timeframe: string;
@@ -53,7 +106,14 @@ export interface TradeSetup {
   reasons: string[];
   risk_notes: string[];
   probabilities?: Partial<Record<SignalType, number>>;
+  raw_probabilities?: Partial<Record<SignalType, number>> | null;
+  calibrated_probabilities?: Partial<Record<SignalType, number>> | null;
+  probability_source?: "raw" | "calibrated" | string;
+  model_scope_used?: "global" | "regime_specific" | string | null;
+  model_version?: string | null;
+  fallback_reason?: string | null;
   explainability?: Explainability | null;
+  explanation_v2?: StructuredExplanation | null;
 }
 
 export interface Trade {
@@ -118,6 +178,56 @@ export interface ModelInfo {
   metrics?: Record<string, unknown>;
   metadata_path?: string;
   model_path?: string;
+  model_id?: string;
+  model_version?: string;
+  model_scope?: string;
+  status?: string;
+  calibration_enabled?: boolean;
+  calibration_method?: string;
+  brier_score_before?: number | null;
+  brier_score_after?: number | null;
+  log_loss_before?: number | null;
+  log_loss_after?: number | null;
+}
+
+export interface ModelCalibration {
+  symbol?: string;
+  timeframe?: string;
+  trained_at?: string;
+  calibration_enabled?: boolean;
+  calibration_method?: string;
+  brier_score_before?: number | null;
+  brier_score_after?: number | null;
+  log_loss_before?: number | null;
+  log_loss_after?: number | null;
+  expected_calibration_error_before?: number | null;
+  expected_calibration_error_after?: number | null;
+  per_class_brier_score_before?: Record<string, number> | null;
+  per_class_brier_score_after?: Record<string, number> | null;
+  reliability_curve_before?: Record<string, unknown[]> | null;
+  reliability_curve_after?: Record<string, unknown[]> | null;
+  probability_histogram_before?: Record<string, unknown[]> | null;
+  probability_histogram_after?: Record<string, unknown[]> | null;
+  report?: Record<string, unknown>;
+}
+
+export interface RiskStatus {
+  enabled: boolean;
+  state: "ACTIVE" | "WARNING" | "BLOCKED" | "COOLDOWN" | string;
+  reasons: string[];
+  daily_trade_count: number;
+  open_positions: number;
+  consecutive_losses: number;
+  daily_drawdown_pct: number;
+  weekly_drawdown_pct: number;
+  last_blocked_at?: string | null;
+  events?: Array<{
+    timestamp: string;
+    state: string;
+    reason: string;
+    symbol: string;
+    timeframe: string;
+  }>;
 }
 
 export interface SignalHistory {

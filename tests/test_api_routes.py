@@ -43,6 +43,7 @@ class FakeApiService:
         timeframe: str,
         account_balance: float,
         risk_percent: float,
+        multi_timeframe: bool | None = None,
     ) -> dict[str, object]:
         return {
             "symbol": symbol,
@@ -55,6 +56,7 @@ class FakeApiService:
             "take_profit_2": None,
             "risk_reward": None,
             "reasons": ["test"],
+            "explanation_v2": {"multi_timeframe": {"enabled": bool(multi_timeframe)}},
         }
 
     def run_backtest(
@@ -72,6 +74,15 @@ class FakeApiService:
     def model_info(self, symbol: str | None = None, timeframe: str | None = None) -> dict[str, object]:
         return {"model_type": "RandomForestClassifier", "feature_columns": ["ema_20"]}
 
+    def model_calibration(self, symbol: str | None = None, timeframe: str | None = None) -> dict[str, object]:
+        return {
+            "calibration_enabled": True,
+            "calibration_method": "sigmoid",
+            "brier_score_before": 0.2,
+            "brier_score_after": 0.18,
+            "report": {},
+        }
+
     def train_model(self, symbol: str, timeframe: str) -> dict[str, object]:
         return {
             "model_path": "models/model.joblib",
@@ -80,6 +91,15 @@ class FakeApiService:
             "metrics": {},
             "feature_columns": ["ema_20"],
         }
+
+    def model_registry(self, symbol: str | None = None, timeframe: str | None = None) -> dict[str, object]:
+        return {"models": [{"model_id": "BTC_USDT_15m_global_v001"}], "total": 1}
+
+    def promote_model(self, model_id: str) -> dict[str, object]:
+        return {"model_id": model_id, "status": "champion"}
+
+    def archive_model(self, model_id: str) -> dict[str, object]:
+        return {"model_id": model_id, "status": "archived"}
 
     def signal_history(self, symbol: str | None = None, timeframe: str | None = None) -> list[dict[str, object]]:
         return [{"symbol": symbol or "BTC/USDT", "timeframe": timeframe or "15m", "signal": "WAIT"}]
@@ -115,11 +135,13 @@ def test_generate_signal_route():
             "timeframe": "15m",
             "account_balance": 1000,
             "risk_percent": 1,
+            "multi_timeframe": True,
         },
     )
 
     assert response.status_code == 200
     assert response.json()["signal"] == "WAIT"
+    assert response.json()["explanation_v2"]["multi_timeframe"]["enabled"] is True
 
 
 def test_backtest_and_model_routes():
@@ -135,11 +157,21 @@ def test_backtest_and_model_routes():
         },
     )
     model_info = client.get("/api/model/info")
+    calibration = client.get("/api/model/calibration")
+    registry = client.get("/api/model/registry")
+    promote = client.post(
+        "/api/model/promote",
+        json={"model_id": "BTC_USDT_15m_global_v001"},
+    )
 
     assert backtest.status_code == 200
     assert backtest.json()["rule_only"]["total_trades"] == 0
     assert model_info.status_code == 200
     assert model_info.json()["model_type"] == "RandomForestClassifier"
+    assert calibration.status_code == 200
+    assert calibration.json()["calibration_method"] == "sigmoid"
+    assert registry.json()["total"] == 1
+    assert promote.json()["status"] == "champion"
 
 
 def _client() -> TestClient:

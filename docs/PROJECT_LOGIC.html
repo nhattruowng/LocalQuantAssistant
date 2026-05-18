@@ -1,0 +1,1543 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LocalQuant Assistant - Luồng, Logic và Chiến lược</title>
+    <style>
+      :root {
+        --bg: #f6f8fb;
+        --paper: #ffffff;
+        --ink: #172033;
+        --muted: #617084;
+        --line: #dce3ee;
+        --blue: #2563eb;
+        --green: #16834a;
+        --red: #dc2626;
+        --amber: #b7791f;
+        --slate: #334155;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        background: var(--bg);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+        line-height: 1.6;
+      }
+
+      a {
+        color: var(--blue);
+        text-decoration: none;
+      }
+
+      a:hover {
+        text-decoration: underline;
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: 300px minmax(0, 1fr);
+        min-height: 100vh;
+      }
+
+      aside {
+        position: sticky;
+        top: 0;
+        height: 100vh;
+        overflow: auto;
+        border-right: 1px solid var(--line);
+        background: var(--paper);
+        padding: 24px 20px;
+      }
+
+      main {
+        max-width: 1180px;
+        padding: 42px 42px 80px;
+      }
+
+      h1,
+      h2,
+      h3 {
+        line-height: 1.2;
+        letter-spacing: 0;
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: 38px;
+      }
+
+      h2 {
+        margin: 42px 0 14px;
+        padding-top: 4px;
+        font-size: 26px;
+        border-top: 1px solid var(--line);
+      }
+
+      h3 {
+        margin: 24px 0 10px;
+        font-size: 19px;
+      }
+
+      p {
+        margin: 8px 0 12px;
+      }
+
+      ul,
+      ol {
+        margin: 8px 0 16px 22px;
+        padding: 0;
+      }
+
+      li {
+        margin: 4px 0;
+      }
+
+      code,
+      pre {
+        font-family: "Cascadia Code", Consolas, "Liberation Mono", monospace;
+      }
+
+      code {
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        background: #f8fafc;
+        padding: 1px 5px;
+        font-size: 0.92em;
+      }
+
+      pre {
+        overflow-x: auto;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #0f172a;
+        color: #e2e8f0;
+        padding: 16px;
+        font-size: 13px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 14px 0 24px;
+        background: var(--paper);
+      }
+
+      th,
+      td {
+        vertical-align: top;
+        border: 1px solid var(--line);
+        padding: 10px 12px;
+        text-align: left;
+      }
+
+      th {
+        background: #eef4ff;
+        color: #1e3a8a;
+        font-weight: 700;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 20px;
+      }
+
+      .logo {
+        display: grid;
+        width: 42px;
+        height: 42px;
+        place-items: center;
+        border-radius: 8px;
+        background: var(--blue);
+        color: #fff;
+        font-weight: 800;
+      }
+
+      .nav-title {
+        margin: 18px 0 8px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      .toc a {
+        display: block;
+        border-radius: 6px;
+        padding: 6px 8px;
+        color: var(--slate);
+        font-size: 14px;
+      }
+
+      .toc a:hover {
+        background: #eef4ff;
+        text-decoration: none;
+      }
+
+      .hero,
+      .card,
+      .note,
+      .warning {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+        padding: 18px;
+      }
+
+      .hero {
+        margin-bottom: 24px;
+      }
+
+      .subtitle {
+        max-width: 860px;
+        color: var(--muted);
+        font-size: 17px;
+      }
+
+      .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 16px;
+      }
+
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: #f8fafc;
+        padding: 4px 10px;
+        color: var(--slate);
+        font-size: 13px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .grid.two {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .card h3 {
+        margin-top: 0;
+      }
+
+      .note {
+        border-color: #bfdbfe;
+        background: #eff6ff;
+      }
+
+      .warning {
+        border-color: #fed7aa;
+        background: #fff7ed;
+      }
+
+      .buy {
+        color: var(--green);
+        font-weight: 700;
+      }
+
+      .sell {
+        color: var(--red);
+        font-weight: 700;
+      }
+
+      .wait {
+        color: var(--amber);
+        font-weight: 700;
+      }
+
+      .flow {
+        white-space: pre;
+      }
+
+      .small {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      @media (max-width: 960px) {
+        .layout {
+          display: block;
+        }
+
+        aside {
+          position: static;
+          height: auto;
+        }
+
+        main {
+          padding: 26px 18px 60px;
+        }
+
+        .grid,
+        .grid.two {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media print {
+        body {
+          background: #fff;
+        }
+
+        aside {
+          display: none;
+        }
+
+        .layout {
+          display: block;
+        }
+
+        main {
+          max-width: none;
+          padding: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <aside>
+        <div class="brand">
+          <div class="logo">LQ</div>
+          <div>
+            <strong>LocalQuant Assistant</strong>
+            <div class="small">Technical Documentation</div>
+          </div>
+        </div>
+
+        <div class="nav-title">Mục lục</div>
+        <nav class="toc">
+          <a href="#overview">1. Tổng quan</a>
+          <a href="#architecture">2. Kiến trúc tổng thể</a>
+          <a href="#modules">3. Bản đồ module</a>
+          <a href="#data-flow">4. Luồng dữ liệu</a>
+          <a href="#features">5. Feature Engineering</a>
+          <a href="#regime">6. Market Regime</a>
+          <a href="#labeling-training">7. Labeling và Training</a>
+          <a href="#signal">8. Signal Engine</a>
+          <a href="#strategies">9. Chiến lược giao dịch</a>
+          <a href="#risk">10. Risk Manager</a>
+          <a href="#orchestration">11. Agent Orchestration</a>
+          <a href="#backtest">12. Backtesting</a>
+          <a href="#paper">13. Paper Trading</a>
+          <a href="#explainability">14. Explainable AI</a>
+          <a href="#notification">15. Telegram Alert</a>
+          <a href="#interfaces">16. API, Dashboard, Frontend</a>
+          <a href="#config">17. Config và threshold</a>
+          <a href="#commands">18. Cách chạy</a>
+          <a href="#extension">19. Mở rộng</a>
+        </nav>
+      </aside>
+
+      <main>
+        <section class="hero" id="overview">
+          <h1>LocalQuant Assistant</h1>
+          <p class="subtitle">
+            Tài liệu kỹ thuật mô tả toàn bộ luồng xử lý, logic nghiệp vụ, chiến lược tín hiệu,
+            risk management, backtesting, paper trading và các interface của dự án.
+          </p>
+          <div class="meta">
+            <span class="tag">Phiên bản tài liệu: 2026-05-18</span>
+            <span class="tag">Mục tiêu: Research & Decision Support</span>
+            <span class="tag">Không auto trade tiền thật</span>
+            <span class="tag">Multi-timeframe confirmation</span>
+          </div>
+        </section>
+
+        <div class="warning">
+          <strong>Disclaimer quan trọng:</strong>
+          LocalQuant Assistant chỉ phục vụ nghiên cứu, phân tích và hỗ trợ ra quyết định.
+          Hệ thống không phải lời khuyên tài chính, không đảm bảo lợi nhuận và không thực thi
+          giao dịch tiền thật tự động. Tất cả BUY/SELL/WAIT chỉ là gợi ý dựa trên dữ liệu,
+          model, rule và risk filter.
+        </div>
+
+        <h2 id="architecture">2. Kiến trúc tổng thể</h2>
+        <p>
+          Dự án được tổ chức theo layered architecture kết hợp agent-based orchestration ở tầng
+          application. Core trading logic nằm trong các module độc lập, UI/API chỉ gọi qua service
+          layer để tránh phụ thuộc chéo và giữ business logic có thể test được.
+        </p>
+
+        <pre class="flow">Market Data
+   ↓
+Collector (ccxt/Binance)
+   ↓
+SQLite candles table
+   ↓
+Feature Engineering
+   ↓
+Market Regime Detector
+   ↓
+ML Prediction / Rule Probability
+   ↓
+Strategy Layer
+   ↓
+Multi-Timeframe Confirmation
+   ↓
+Risk Manager
+   ↓
+Signal Engine
+   ↓
+Structured Explanation / Notification / Backtest / Paper Trading / UI / API</pre>
+
+        <div class="grid">
+          <div class="card">
+            <h3>Domain Layer</h3>
+            <p>
+              Chứa enum, entity và model nghiệp vụ như signal type, strategy type,
+              TradeSetup, RiskPlan, BacktestReport.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Application Layer</h3>
+            <p>
+              Điều phối luồng: DashboardService, LocalQuantApiService, agent orchestration,
+              command từ CLI và service cho UI.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Infrastructure Layer</h3>
+            <p>
+              SQLite repository, collector, model registry, file output, Telegram API,
+              Docker, logging và config loader.
+            </p>
+          </div>
+        </div>
+
+        <h2 id="modules">3. Bản đồ module</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Module</th>
+              <th>Vai trò</th>
+              <th>File chính</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>collector</code></td>
+              <td>Lấy OHLCV từ Binance, retry API, validate candle, cập nhật dữ liệu mới.</td>
+              <td><code>binance_collector.py</code>, <code>update_service.py</code></td>
+            </tr>
+            <tr>
+              <td><code>database</code></td>
+              <td>Kết nối SQLite, schema, repository đọc/ghi candles và dữ liệu paper trading.</td>
+              <td><code>connection.py</code>, <code>candle_repository.py</code>, <code>schema.sql</code></td>
+            </tr>
+            <tr>
+              <td><code>features</code></td>
+              <td>Tạo price action, trend, momentum, volatility, volume features.</td>
+              <td><code>feature_builder.py</code>, <code>indicators.py</code>, <code>price_action.py</code></td>
+            </tr>
+            <tr>
+              <td><code>regime</code></td>
+              <td>Phân loại UPTREND, DOWNTREND, SIDEWAY, BREAKOUT, VOLATILITY.</td>
+              <td><code>regime_detector.py</code>, <code>market_regime.py</code></td>
+            </tr>
+            <tr>
+              <td><code>labeling</code></td>
+              <td>Tạo label BUY/SELL/WAIT bằng TP/SL first-touch.</td>
+              <td><code>label_generator.py</code></td>
+            </tr>
+            <tr>
+              <td><code>ml</code></td>
+              <td>Build dataset time-series, train model, registry metadata, explainability.</td>
+              <td><code>dataset_builder.py</code>, <code>model_trainer.py</code>, <code>explainability.py</code></td>
+            </tr>
+            <tr>
+              <td><code>strategy</code></td>
+              <td>Rule layer chọn BUY/SELL/WAIT theo market regime và indicator.</td>
+              <td><code>trend_following.py</code>, <code>breakout.py</code>, <code>mean_reversion.py</code></td>
+            </tr>
+            <tr>
+              <td><code>risk</code></td>
+              <td>Tính entry, stop loss, take profit, R/R, position size.</td>
+              <td><code>risk_manager.py</code></td>
+            </tr>
+            <tr>
+              <td><code>signals</code></td>
+              <td>Tổng hợp model probability, regime, strategy, multi-timeframe confirmation và risk thành TradeSetup.</td>
+              <td><code>signal_engine.py</code>, <code>models.py</code></td>
+            </tr>
+            <tr>
+              <td><code>backtest</code></td>
+              <td>Backtest candle-by-candle, fee, slippage, cooldown, metrics.</td>
+              <td><code>backtester.py</code>, <code>metrics.py</code>, <code>report_writer.py</code></td>
+            </tr>
+            <tr>
+              <td><code>agents</code></td>
+              <td>Agent-based orchestration: mỗi agent là service có trách nhiệm rõ ràng.</td>
+              <td><code>trading_orchestrator_agent.py</code>, <code>context.py</code></td>
+            </tr>
+            <tr>
+              <td><code>api</code></td>
+              <td>FastAPI REST API cho React frontend.</td>
+              <td><code>main.py</code>, <code>routes/*</code>, <code>services/localquant_service.py</code></td>
+            </tr>
+            <tr>
+              <td><code>app</code></td>
+              <td>Streamlit dashboard và dashboard service.</td>
+              <td><code>dashboard.py</code>, <code>services/dashboard_service.py</code></td>
+            </tr>
+            <tr>
+              <td><code>frontend</code></td>
+              <td>React + TypeScript dashboard dùng FastAPI.</td>
+              <td><code>frontend/src/app/App.tsx</code>, <code>frontend/src/lib/api.ts</code></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2 id="data-flow">4. Luồng dữ liệu thị trường</h2>
+        <h3>4.1 Collector Flow</h3>
+        <ol>
+          <li>Người dùng chạy CLI, dashboard hoặc API gọi update data.</li>
+          <li><code>MarketDataUpdateService</code> gọi <code>BinanceCollector</code>.</li>
+          <li>Collector dùng <code>ccxt</code> fetch OHLCV theo <code>symbol</code>, <code>timeframe</code>, <code>limit</code>.</li>
+          <li>Nếu API lỗi, retry tối đa <code>collector.retry_attempts</code>.</li>
+          <li>Mỗi candle được validate trước khi lưu.</li>
+          <li><code>CandleRepository</code> insert batch vào SQLite với unique key <code>(symbol, timeframe, timestamp)</code>.</li>
+          <li>Dữ liệu trùng bị bỏ qua, không overwrite lung tung.</li>
+        </ol>
+
+        <h3>4.2 Candle Validation</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Rule</th>
+              <th>Mục đích</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>timestamp != null</code></td>
+              <td>Không cho dòng thiếu mốc thời gian.</td>
+            </tr>
+            <tr>
+              <td><code>open, high, low, close &gt; 0</code></td>
+              <td>Loại giá không hợp lệ.</td>
+            </tr>
+            <tr>
+              <td><code>high &gt;= low</code></td>
+              <td>Đảm bảo OHLC đúng cấu trúc.</td>
+            </tr>
+            <tr>
+              <td><code>volume &gt;= 0</code></td>
+              <td>Volume không âm.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2 id="features">5. Feature Engineering</h2>
+        <p>
+          Feature pipeline nhận DataFrame OHLCV và trả về DataFrame mới, không mutate raw input.
+          Logic được vectorized bằng pandas để tránh loop không cần thiết. Warmup rows có thể drop
+          khi train để loại NaN ở đầu chuỗi indicator.
+        </p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Nhóm feature</th>
+              <th>Columns</th>
+              <th>Ý nghĩa</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Price Action</td>
+              <td><code>return_1</code>, <code>return_3</code>, <code>return_5</code>, <code>candle_range</code>, <code>body_size</code>, wick ratios</td>
+              <td>Đo biến động ngắn hạn, thân nến và râu nến.</td>
+            </tr>
+            <tr>
+              <td>Trend</td>
+              <td><code>ema_20</code>, <code>ema_50</code>, <code>ema_200</code>, slopes, close above EMA flags</td>
+              <td>Nhận diện hướng trend và vị trí giá so với moving average.</td>
+            </tr>
+            <tr>
+              <td>Momentum</td>
+              <td><code>rsi_14</code>, <code>macd</code>, <code>macd_signal</code>, <code>macd_hist</code></td>
+              <td>Đo lực tăng/giảm và trạng thái quá mua/quá bán.</td>
+            </tr>
+            <tr>
+              <td>Volatility</td>
+              <td><code>atr_14</code>, <code>atr_percent</code>, Bollinger bands, <code>bollinger_width</code></td>
+              <td>Đo biên độ dao động và độ co/giãn của thị trường.</td>
+            </tr>
+            <tr>
+              <td>Volume</td>
+              <td><code>volume_sma_20</code>, <code>volume_ratio</code>, <code>volume_change</code></td>
+              <td>Xác nhận breakout hoặc thiếu thanh khoản.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="note">
+          <strong>Chống data leakage:</strong>
+          Các feature dùng dữ liệu hiện tại và quá khứ. Rolling resistance/support trong regime dùng
+          <code>shift(1)</code> trước khi rolling để candle hiện tại không tự làm resistance/support cho chính nó.
+        </div>
+
+        <h2 id="regime">6. Market Regime Detector</h2>
+        <p>
+          Market regime là lớp filter để model không quyết định mù quáng. Detector thêm các cột:
+          <code>rolling_high_20</code>, <code>rolling_low_20</code>, <code>market_regime</code>,
+          <code>trend_score</code>, <code>volatility_score</code>, <code>breakout_score</code>,
+          <code>regime_reason</code>.
+        </p>
+
+        <h3>6.1 Thứ tự ưu tiên classify</h3>
+        <ol>
+          <li><code>BREAKOUT_UP</code></li>
+          <li><code>BREAKOUT_DOWN</code></li>
+          <li><code>HIGH_VOLATILITY</code></li>
+          <li><code>LOW_VOLATILITY</code></li>
+          <li><code>SIDEWAY</code></li>
+          <li><code>UPTREND</code></li>
+          <li><code>DOWNTREND</code></li>
+          <li><code>UNKNOWN</code> nếu không match hoặc thiếu indicator.</li>
+        </ol>
+
+        <h3>6.2 Logic regime</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Regime</th>
+              <th>Điều kiện chính</th>
+              <th>Lý do</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>UPTREND</code></td>
+              <td><code>ema_20 &gt; ema_50</code>, <code>close &gt; ema_20</code>, <code>ema_20_slope &gt; 0</code></td>
+              <td>Trend tăng có xác nhận bởi EMA và slope.</td>
+            </tr>
+            <tr>
+              <td><code>DOWNTREND</code></td>
+              <td><code>ema_20 &lt; ema_50</code>, <code>close &lt; ema_20</code>, <code>ema_20_slope &lt; 0</code></td>
+              <td>Trend giảm có xác nhận bởi EMA và slope.</td>
+            </tr>
+            <tr>
+              <td><code>SIDEWAY</code></td>
+              <td>EMA spread hẹp, Bollinger width thấp, ATR percent thấp hoặc trung bình.</td>
+              <td>Thị trường đi ngang, ưu tiên mean reversion.</td>
+            </tr>
+            <tr>
+              <td><code>BREAKOUT_UP</code></td>
+              <td>Close vượt rolling high cũ, volume ratio cao, ATR percent xác nhận mở biên.</td>
+              <td>Giá phá resistance có volume và volatility.</td>
+            </tr>
+            <tr>
+              <td><code>BREAKOUT_DOWN</code></td>
+              <td>Close phá rolling low cũ, volume ratio cao, ATR percent xác nhận mở biên.</td>
+              <td>Giá phá support có volume và volatility.</td>
+            </tr>
+            <tr>
+              <td><code>HIGH_VOLATILITY</code></td>
+              <td>ATR percent nằm trên percentile cao trong trailing window.</td>
+              <td>Biên độ cao, cần thận trọng với signal.</td>
+            </tr>
+            <tr>
+              <td><code>LOW_VOLATILITY</code></td>
+              <td>ATR percent nằm dưới percentile thấp.</td>
+              <td>Thị trường nén, dễ thiếu động lượng.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2 id="labeling-training">7. Labeling và Training Pipeline</h2>
+        <h3>7.1 TP/SL First-Touch Label</h3>
+        <p>
+          Label chỉ dùng tương lai cho mục đích tạo target. Feature tại thời điểm <code>t</code>
+          không nhìn tương lai. Với mỗi candle:
+        </p>
+        <pre>entry = close[t]
+atr = atr_14[t]
+
+BUY:
+  stop_loss = entry - atr * 1.5
+  take_profit = entry + atr * 3.0
+
+SELL:
+  stop_loss = entry + atr * 1.5
+  take_profit = entry - atr * 3.0
+
+look ahead tối đa N candle, mặc định 10.</pre>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Kết quả</th>
+              <th>Điều kiện</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="buy">BUY</span></td>
+              <td>TP BUY chạm trước SL BUY, không bị ambiguous trong cùng candle.</td>
+            </tr>
+            <tr>
+              <td><span class="sell">SELL</span></td>
+              <td>TP SELL chạm trước SL SELL, không bị ambiguous trong cùng candle.</td>
+            </tr>
+            <tr>
+              <td><span class="wait">WAIT</span></td>
+              <td>Không rõ hướng, thiếu ATR, hết lookahead, hoặc BUY/SELL cùng hợp lệ gây nhiễu.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>7.2 Dataset Builder</h3>
+        <ul>
+          <li>Loại raw columns: <code>timestamp</code>, OHLCV, <code>label</code>, <code>regime_reason</code>.</li>
+          <li>Loại mọi column bắt đầu bằng <code>future</code>.</li>
+          <li>Chỉ chọn numeric feature.</li>
+          <li>Drop NaN trên feature columns và label.</li>
+          <li>Split theo thời gian, không shuffle: train 70%, validation 15%, test 15%.</li>
+        </ul>
+
+        <h3>7.3 Model Training</h3>
+        <p>
+          Baseline là RandomForest. Nếu XGBoost khả dụng thì dùng XGBoostClassifier làm main model,
+          nếu không sẽ fallback. Model phải hỗ trợ <code>predict_proba</code> để SignalEngine có xác suất
+          BUY/SELL/WAIT.
+        </p>
+        <ul>
+          <li>Model lưu bằng <code>joblib</code> trong <code>models/</code>.</li>
+          <li>Metadata lưu symbol, timeframe, trained_at, feature_columns, metrics, model_type.</li>
+          <li>Metrics gồm accuracy, precision/recall từng class, confusion matrix, classification report, feature importance.</li>
+        </ul>
+
+        <h2 id="signal">8. Signal Engine</h2>
+        <p>
+          SignalEngine là cổng quyết định cuối cùng. Nó không chỉ nghe model, mà còn bắt buộc đi qua:
+          regime, strategy rule, multi-timeframe confirmation, risk/reward và position sizing.
+        </p>
+
+        <pre class="flow">Input:
+  symbol, primary_timeframe, timestamp
+  primary_features, primary_regime
+  higher_timeframe_features, higher_timeframe_regimes
+  probabilities: BUY / SELL / WAIT
+  model_prediction, strategy_scores, risk_plan
+
+Process:
+  1. Tạo SignalContext
+  2. Chọn strategy bằng mapping cũ hoặc ensemble nếu bật
+  3. Strategy đánh giá rule và model probability
+  4. RiskManager tính entry / SL / TP / R:R / size
+  5. Gate risk_reward >= min_risk_reward
+  6. Xác nhận higher timeframe nếu multi_timeframe bật
+  7. Giảm confidence hoặc WAIT nếu timeframe conflict mạnh
+  8. RiskGuard / CircuitBreaker kiểm tra overtrading
+  9. Tạo explanation_v2 có cấu trúc
+  10. Trả TradeSetup
+
+Output:
+  BUY / SELL / WAIT TradeSetup + explanation_v2</pre>
+
+        <h3>8.1 Strategy Selection</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Market Regime</th>
+              <th>Strategy được chọn</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>UPTREND</code>, <code>DOWNTREND</code></td>
+              <td><code>TREND_FOLLOWING</code></td>
+            </tr>
+            <tr>
+              <td><code>BREAKOUT_UP</code>, <code>BREAKOUT_DOWN</code></td>
+              <td><code>BREAKOUT_CONFIRMATION</code></td>
+            </tr>
+            <tr>
+              <td><code>SIDEWAY</code></td>
+              <td><code>MEAN_REVERSION</code></td>
+            </tr>
+            <tr>
+              <td>Khác</td>
+              <td><code>WAIT</code> vì không có strategy phù hợp.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>8.2 Multi-Timeframe Confirmation</h3>
+        <p>
+          Primary timeframe dùng để tìm entry. Higher timeframe như <code>1h</code> và
+          <code>4h</code> chỉ đóng vai trò filter hướng lớn hơn. Nếu thiếu dữ liệu higher timeframe,
+          engine ghi nhận trong explanation và tiếp tục bằng primary timeframe, không làm API/UI crash.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Rule</th>
+              <th>Hành vi</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="buy">BUY</span> trên <code>15m</code> và <code>1h</code> là <code>DOWNTREND</code> mạnh</td>
+              <td>Giảm confidence theo <code>signal.multi_timeframe.conflict_penalty</code> hoặc chuyển WAIT nếu yêu cầu alignment.</td>
+            </tr>
+            <tr>
+              <td><span class="sell">SELL</span> trên <code>15m</code> và <code>1h</code> là <code>UPTREND</code> mạnh</td>
+              <td>Giảm confidence hoặc WAIT để tránh entry ngược trend lớn.</td>
+            </tr>
+            <tr>
+              <td><code>BREAKOUT_CONFIRMATION</code> trên primary timeframe</td>
+              <td>Cần volume hoặc volatility confirmation từ higher timeframe nếu dữ liệu có sẵn.</td>
+            </tr>
+            <tr>
+              <td>Higher timeframe align với signal</td>
+              <td>Giữ confidence và ghi rõ alignment trong <code>explanation_v2.multi_timeframe</code>.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <pre>signal:
+  multi_timeframe:
+    enabled: false
+    primary_timeframe: 15m
+    confirmation_timeframes: [1h, 4h]
+    conflict_penalty: 0.35
+    require_higher_tf_alignment: false</pre>
+
+        <h3>8.3 Confidence Score</h3>
+        <pre>confidence =
+  model_probability * 0.40
+  + trend_score * 0.25
+  + indicator_score * 0.20
+  + volume_score * 0.10
+  + risk_reward_score * 0.05</pre>
+        <p>
+          <code>risk_reward_score</code> được cap trong khoảng 0..1 bằng cách so sánh R/R thực tế
+          với <code>signal.min_risk_reward</code>. Sau đó confidence có thể bị giảm thêm bởi
+          low regime confidence, transition warning hoặc multi-timeframe conflict.
+        </p>
+
+        <h2 id="strategies">9. Chiến lược giao dịch</h2>
+        <h3>9.1 Trend Following</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Signal</th>
+              <th>Điều kiện</th>
+              <th>Fail thì sao?</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="buy">BUY</span></td>
+              <td>
+                Regime <code>UPTREND</code>, BUY probability >= 0.65,
+                <code>ema_20 &gt; ema_50</code>, close gần/trên EMA20,
+                RSI trong 40-70.
+              </td>
+              <td><code>WAIT</code> với reason cụ thể.</td>
+            </tr>
+            <tr>
+              <td><span class="sell">SELL</span></td>
+              <td>
+                Regime <code>DOWNTREND</code>, SELL probability >= 0.65,
+                <code>ema_20 &lt; ema_50</code>, close gần/dưới EMA20,
+                RSI trong 30-60.
+              </td>
+              <td><code>WAIT</code> với reason cụ thể.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>9.2 Breakout Confirmation</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Signal</th>
+              <th>Điều kiện</th>
+              <th>Mục đích</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="buy">BUY</span></td>
+              <td>
+                Regime <code>BREAKOUT_UP</code>, BUY probability >= 0.65,
+                <code>volume_ratio &gt; 1.2</code>, close phá <code>rolling_high_20</code>.
+              </td>
+              <td>Chỉ mua khi breakout có volume xác nhận.</td>
+            </tr>
+            <tr>
+              <td><span class="sell">SELL</span></td>
+              <td>
+                Regime <code>BREAKOUT_DOWN</code>, SELL probability >= 0.65,
+                <code>volume_ratio &gt; 1.2</code>, close phá <code>rolling_low_20</code>.
+              </td>
+              <td>Chỉ bán khi breakdown có volume xác nhận.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>9.3 Mean Reversion</h3>
+        <p>
+          Mean Reversion chỉ chạy trong <code>SIDEWAY</code>. Xác suất threshold thấp hơn
+          vì sideway thường ít momentum hơn trend/breakout.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Signal</th>
+              <th>Điều kiện</th>
+              <th>Ý nghĩa</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="buy">BUY</span></td>
+              <td>BUY probability >= 0.60, RSI &lt; 35, close gần <code>rolling_low_20</code>.</td>
+              <td>Mua hồi về support trong range.</td>
+            </tr>
+            <tr>
+              <td><span class="sell">SELL</span></td>
+              <td>SELL probability >= 0.60, RSI &gt; 65, close gần <code>rolling_high_20</code>.</td>
+              <td>Bán khi giá lên gần resistance trong range.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2 id="risk">10. Risk Manager</h2>
+        <p>
+          RiskManager tách riêng khỏi strategy để mọi setup đều có risk plan nhất quán.
+          Nếu không có <code>close</code> hoặc <code>atr_14</code> hợp lệ, setup bị chuyển thành WAIT.
+        </p>
+
+        <pre>BUY:
+  entry = close
+  stop_loss = entry - atr_14 * 1.5
+  take_profit_1 = entry + atr_14 * 2.0
+  take_profit_2 = entry + atr_14 * 3.0
+
+SELL:
+  entry = close
+  stop_loss = entry + atr_14 * 1.5
+  take_profit_1 = entry - atr_14 * 2.0
+  take_profit_2 = entry - atr_14 * 3.0
+
+Position sizing:
+  risk_amount = account_balance * risk_per_trade_pct
+  position_size = risk_amount / abs(entry - stop_loss)
+
+Risk reward:
+  risk_reward = abs(take_profit_2 - entry) / abs(entry - stop_loss)</pre>
+
+        <div class="note">
+          Gate cuối: SignalEngine không cho BUY/SELL nếu
+          <code>risk_reward &lt; signal.min_risk_reward</code>. Mặc định min R/R là <code>2.0</code>.
+        </div>
+
+        <h2 id="orchestration">11. Agent-based Orchestration</h2>
+        <p>
+          Agent trong dự án không phải agent mơ hồ. Mỗi agent là một service/class có nhiệm vụ rõ
+          và truyền dữ liệu qua <code>AgentContext</code>. Agent không gọi UI và không auto trade.
+        </p>
+        <pre class="flow">TradingOrchestratorAgent
+   ↓ MarketDataAgent
+   ↓ FeatureEngineeringAgent
+   ↓ MarketRegimeAgent
+   ↓ PredictionAgent
+   ↓ StrategyAgent
+   ↓ RiskAgent
+   ↓ SignalDecisionAgent
+   ↓ ExplanationAgent
+   → TradeSetup hoàn chỉnh</pre>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Agent</th>
+              <th>Trách nhiệm</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>MarketDataAgent</code></td>
+              <td>Kiểm tra OHLCV, gọi collector nếu thiếu, validate chất lượng dữ liệu.</td>
+            </tr>
+            <tr>
+              <td><code>FeatureEngineeringAgent</code></td>
+              <td>Tạo technical indicators, price action features, kiểm tra NaN.</td>
+            </tr>
+            <tr>
+              <td><code>MarketRegimeAgent</code></td>
+              <td>Detect market regime.</td>
+            </tr>
+            <tr>
+              <td><code>PredictionAgent</code></td>
+              <td>Load model, chuẩn bị feature vector, gọi <code>predict_proba</code>.</td>
+            </tr>
+            <tr>
+              <td><code>StrategyAgent</code></td>
+              <td>Chọn strategy phù hợp với regime.</td>
+            </tr>
+            <tr>
+              <td><code>RiskAgent</code></td>
+              <td>Tính entry, SL, TP, R/R, position size.</td>
+            </tr>
+            <tr>
+              <td><code>SignalDecisionAgent</code></td>
+              <td>Gate confidence và R/R, quyết định BUY/SELL/WAIT.</td>
+            </tr>
+            <tr>
+              <td><code>ExplanationAgent</code></td>
+              <td>Tạo explanation template-based, có thể thay bằng local LLM sau này.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2 id="backtest">12. Backtesting Engine</h2>
+        <p>
+          Backtester chạy từng candle theo thời gian, không mở nhiều lệnh cùng lúc trong MVP.
+          Model probability được batch trước khi vào trade loop để giảm overhead.
+        </p>
+
+        <h3>12.1 Backtest Flow</h3>
+        <ol>
+          <li>Sort feature rows theo <code>timestamp</code>.</li>
+          <li>Dự đoán probability cho từng row bằng rule-only hoặc ML-enhanced provider.</li>
+          <li>Tại mỗi candle, gọi SignalEngine tạo setup.</li>
+          <li>Nếu WAIT, đi candle tiếp theo.</li>
+          <li>Nếu BUY/SELL, mô phỏng trade từ candle kế tiếp.</li>
+          <li>Quét tối đa <code>max_holding_bars</code> để tìm TP/SL/timeout.</li>
+          <li>Nếu loss, áp dụng cooldown <code>cooldown_bars_after_loss</code>.</li>
+          <li>Tính metrics và ghi report.</li>
+        </ol>
+
+        <h3>12.2 TP/SL Conservative Mode</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Direction</th>
+              <th>Logic exit trong mỗi candle</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="buy">BUY</span></td>
+              <td>Check <code>low &lt;= stop_loss</code> trước. Nếu đúng: LOSS. Sau đó mới check <code>high &gt;= take_profit_2</code>.</td>
+            </tr>
+            <tr>
+              <td><span class="sell">SELL</span></td>
+              <td>Check <code>high &gt;= stop_loss</code> trước. Nếu đúng: LOSS. Sau đó mới check <code>low &lt;= take_profit_2</code>.</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          Nếu cùng một candle chạm cả TP và SL, hệ thống tính SL trước để bảo thủ.
+        </p>
+
+        <h3>12.3 Fee và Slippage</h3>
+        <pre>BUY entry fill  = entry * (1 + slippage_rate)
+BUY exit fill   = exit  * (1 - slippage_rate)
+SELL entry fill = entry * (1 - slippage_rate)
+SELL exit fill  = exit  * (1 + slippage_rate)
+
+fees = entry_notional * fee_rate + exit_notional * fee_rate
+net_pnl = gross_pnl - fees</pre>
+
+        <h3>12.4 Metrics</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th>Ý nghĩa</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>total_trades</code></td>
+              <td>Tổng số lệnh mô phỏng đã đóng.</td>
+            </tr>
+            <tr>
+              <td><code>winrate</code></td>
+              <td>Tỷ lệ trade thắng.</td>
+            </tr>
+            <tr>
+              <td><code>net_profit</code></td>
+              <td>PnL sau fee.</td>
+            </tr>
+            <tr>
+              <td><code>profit_factor</code></td>
+              <td>Gross profit chia gross loss.</td>
+            </tr>
+            <tr>
+              <td><code>max_drawdown</code></td>
+              <td>Drawdown lớn nhất trên equity curve.</td>
+            </tr>
+            <tr>
+              <td><code>expectancy</code></td>
+              <td>Lợi nhuận kỳ vọng trung bình trên mỗi trade.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2 id="paper">13. Paper Trading Mode</h2>
+        <p>
+          Paper trading mô phỏng realtime bằng tín hiệu hệ thống. Nó lưu lệnh giả lập vào database
+          và không bao giờ gửi lệnh ra exchange.
+        </p>
+        <pre class="flow">SignalEngine tạo BUY/SELL
+   ↓
+PaperTradingEngine kiểm tra:
+  - paper mode enabled
+  - chưa có vị thế mở cùng symbol/timeframe
+  - risk hợp lệ
+   ↓
+Mở paper trade
+   ↓
+Candle mới đến
+   ↓
+Kiểm tra TP/SL
+   ↓
+Đóng trade, tính realized PnL, snapshot balance/equity/drawdown</pre>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Table</th>
+              <th>Nội dung</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>paper_trades</code></td>
+              <td>Lưu open/closed paper trades, direction, entry, SL, TP, PnL.</td>
+            </tr>
+            <tr>
+              <td><code>paper_account_snapshots</code></td>
+              <td>Lưu balance, equity, realized/unrealized PnL, drawdown theo thời gian.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2 id="explainability">14. Explainable AI</h2>
+        <p>
+          ExplainabilityService giải thích model output bằng SHAP nếu khả dụng. Nếu không có SHAP
+          hoặc lỗi runtime, service fallback sang feature importance của model.
+          Từ phiên bản 2026-05-18, mỗi TradeSetup còn có <code>explanation_v2</code> dạng
+          structured explanation để UI/API không phải parse text tự do.
+        </p>
+
+        <pre>{
+  "top_positive_factors": [
+    {"feature": "ema_20_slope", "impact": 0.18},
+    {"feature": "volume_ratio", "impact": 0.12}
+  ],
+  "top_negative_factors": [
+    {"feature": "rsi_14", "impact": -0.06}
+  ],
+  "summary": "The BUY signal is mainly supported by positive EMA slope and increased volume."
+}</pre>
+
+        <p>
+          Dashboard tab Signal và Model có thể hiển thị top factors khi API trả về explanation payload.
+          Nếu không có model/explainability, UI hiển thị empty state thay vì crash.
+        </p>
+
+        <h3>14.1 StructuredExplanation</h3>
+        <p>
+          <code>explanation_v2</code> gom quyết định theo các lớp nghiệp vụ: regime, strategy,
+          risk, model probability và multi-timeframe confirmation. Payload này bổ sung cho
+          <code>explainability</code> SHAP/feature-importance cũ, không thay thế format API cũ.
+        </p>
+        <pre>{
+  "final_decision": "BUY",
+  "summary": "BUY from TREND_FOLLOWING with higher timeframe confirmation.",
+  "regime": {
+    "primary": "UPTREND",
+    "confidence": 0.76,
+    "transition_warning": false,
+    "higher_timeframes": [
+      {"timeframe": "1h", "regime": "UPTREND", "confidence": 0.82}
+    ]
+  },
+  "strategy": {
+    "selected": "TREND_FOLLOWING",
+    "selected_score": 0.72,
+    "passed_conditions": ["BUY probability passed threshold."],
+    "failed_conditions": []
+  },
+  "risk": {
+    "risk_reward": 2.1,
+    "position_size": 0.012,
+    "risk_notes": []
+  },
+  "model": {
+    "probability_source": "calibrated",
+    "buy_probability": 0.71,
+    "sell_probability": 0.12,
+    "wait_probability": 0.17
+  },
+  "multi_timeframe": {
+    "enabled": true,
+    "primary_timeframe": "15m",
+    "confirmation_timeframes": ["1h", "4h"],
+    "conflict": false,
+    "confidence_multiplier": 1.0,
+    "confirmations": [
+      {
+        "timeframe": "1h",
+        "regime": "UPTREND",
+        "aligned": true,
+        "conflict": false
+      }
+    ]
+  },
+  "final_decision_summary": "BUY from TREND_FOLLOWING with higher timeframe confirmation."
+}</pre>
+
+        <h2 id="notification">15. Telegram Alert</h2>
+        <p>
+          Telegram alert là optional và bị tắt mặc định. NotificationService chỉ gửi tín hiệu mạnh,
+          không gửi WAIT và không spam nhờ cooldown theo symbol/timeframe.
+        </p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Điều kiện gửi</th>
+              <th>Giá trị mặc định</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>notification.enabled</code></td>
+              <td><code>false</code></td>
+            </tr>
+            <tr>
+              <td><code>signal in BUY/SELL</code></td>
+              <td>Không gửi WAIT.</td>
+            </tr>
+            <tr>
+              <td><code>confidence &gt;= notification.min_confidence</code></td>
+              <td><code>0.70</code></td>
+            </tr>
+            <tr>
+              <td><code>risk_reward &gt;= notification.min_risk_reward</code></td>
+              <td><code>2.0</code></td>
+            </tr>
+            <tr>
+              <td><code>cooldown_seconds</code></td>
+              <td><code>900</code> giây.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>
+          Secret được đọc từ <code>.env</code>: <code>TELEGRAM_BOT_TOKEN</code> và
+          <code>TELEGRAM_CHAT_ID</code>. Nếu Telegram lỗi, service log lỗi và không làm app crash.
+        </p>
+
+        <h2 id="interfaces">16. API, Dashboard và Frontend</h2>
+        <h3>16.1 FastAPI</h3>
+        <p>
+          FastAPI tách backend ML/trading engine khỏi UI. Route handler không gọi trực tiếp database
+          hoặc model lung tung, mà đi qua <code>LocalQuantApiService</code>.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Endpoint</th>
+              <th>Mục đích</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>GET /api/health</code></td>
+              <td>Health check.</td>
+            </tr>
+            <tr>
+              <td><code>GET /api/symbols</code>, <code>GET /api/timeframes</code></td>
+              <td>Trả config symbol/timeframe.</td>
+            </tr>
+            <tr>
+              <td><code>GET /api/candles</code></td>
+              <td>Trả latest OHLCV candles.</td>
+            </tr>
+            <tr>
+              <td><code>POST /api/data/update</code></td>
+              <td>Gọi collector cập nhật dữ liệu.</td>
+            </tr>
+            <tr>
+              <td><code>POST /api/features/build</code></td>
+              <td>Build feature cho symbol/timeframe.</td>
+            </tr>
+            <tr>
+              <td><code>POST /api/signals/generate</code></td>
+              <td>Tạo TradeSetup. Body hỗ trợ <code>multi_timeframe=true/false</code> để override config cho request hiện tại.</td>
+            </tr>
+            <tr>
+              <td><code>POST /api/backtest/run</code></td>
+              <td>Chạy backtest rule-only và ML-enhanced khi có model.</td>
+            </tr>
+            <tr>
+              <td><code>GET /api/model/info</code>, <code>POST /api/model/train</code></td>
+              <td>Xem metadata và train model.</td>
+            </tr>
+            <tr>
+              <td><code>GET /api/signals/history</code></td>
+              <td>Lấy lịch sử signal.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>16.2 Streamlit Dashboard</h3>
+        <ul>
+          <li>Sidebar chọn symbol/timeframe/account balance/risk percent.</li>
+          <li>Có checkbox Multi-Timeframe Confirmation khi generate signal.</li>
+          <li>Tabs: Market, Signal, Backtest, Model, History, Paper Trading.</li>
+          <li>Signal tab hiển thị structured explanation: regime, strategy, risk, model và higher timeframe confirmation.</li>
+          <li>UI gọi qua DashboardService, không gọi database/model trực tiếp rải rác.</li>
+        </ul>
+
+        <h3>16.3 React Frontend</h3>
+        <ul>
+          <li>React + TypeScript + Vite + Tailwind.</li>
+          <li>TanStack Query cache API data.</li>
+          <li>Zustand lưu settings local: API URL, default symbol/timeframe, balance, risk percent.</li>
+          <li>Pages: Dashboard, Market, Signal, Backtest, Model, History, Settings.</li>
+          <li>Signal page có toggle Multi-timeframe, bảng higher timeframe confirmation, selected strategy, passed/failed rules và final summary.</li>
+          <li>FastAPI base URL lấy từ <code>VITE_API_BASE_URL</code>.</li>
+        </ul>
+
+        <h2 id="config">17. Config và Threshold</h2>
+        <p>
+          Hầu hết magic numbers được đưa vào <code>src/config/settings.yaml</code>. Đây là các nhóm
+          cấu hình quan trọng:
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Nhóm</th>
+              <th>Key quan trọng</th>
+              <th>Vai trò</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>collector</code></td>
+              <td><code>symbols</code>, <code>timeframes</code>, <code>candles_limit</code>, retry</td>
+              <td>Data collection.</td>
+            </tr>
+            <tr>
+              <td><code>feature_toggles</code></td>
+              <td>price_action, trend, momentum, volatility, volume</td>
+              <td>Bật/tắt nhóm feature.</td>
+            </tr>
+            <tr>
+              <td><code>market_regime</code></td>
+              <td>breakout window, volume threshold, ATR percentile threshold</td>
+              <td>Regime detection.</td>
+            </tr>
+            <tr>
+              <td><code>signal</code></td>
+              <td>probability thresholds, RSI ranges, score weights, min R/R, <code>multi_timeframe</code></td>
+              <td>Signal rules, confidence score và higher timeframe confirmation.</td>
+            </tr>
+            <tr>
+              <td><code>risk</code></td>
+              <td>account balance, risk percent, ATR multipliers</td>
+              <td>Risk plan và position sizing.</td>
+            </tr>
+            <tr>
+              <td><code>labeling</code></td>
+              <td>lookahead bars, SL/TP ATR multipliers</td>
+              <td>Training labels.</td>
+            </tr>
+            <tr>
+              <td><code>training</code></td>
+              <td>split ratios, model dir, RF/XGB params</td>
+              <td>ML training pipeline.</td>
+            </tr>
+            <tr>
+              <td><code>backtest</code></td>
+              <td>fee, slippage, cooldown, max holding bars</td>
+              <td>Historical simulation.</td>
+            </tr>
+            <tr>
+              <td><code>notification</code></td>
+              <td>enabled, confidence, R/R, cooldown</td>
+              <td>Telegram alert.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2 id="commands">18. Cách chạy</h2>
+        <h3>18.1 Python CLI</h3>
+        <pre>python main.py collect --symbol BTC/USDT --timeframe 15m
+python main.py features --symbol BTC/USDT --timeframe 15m
+python main.py train --symbol BTC/USDT --timeframe 15m
+python main.py backtest --symbol BTC/USDT --timeframe 15m</pre>
+
+        <h3>18.2 Streamlit</h3>
+        <pre>streamlit run src/app/dashboard.py</pre>
+
+        <h3>18.3 FastAPI</h3>
+        <pre>uvicorn src.api.main:app --reload</pre>
+
+        <h3>18.4 React Frontend</h3>
+        <pre>cd frontend
+npm install
+npm run dev</pre>
+
+        <h3>18.5 Docker và Makefile</h3>
+        <pre>make install
+make collect
+make features
+make train
+make backtest
+make dashboard
+make test
+make docker-up
+make docker-down</pre>
+
+        <h2 id="extension">19. Hướng mở rộng</h2>
+        <div class="grid two">
+          <div class="card">
+            <h3>Data Sources</h3>
+            <ul>
+              <li>Yahoo Finance collector.</li>
+              <li>MT5 collector.</li>
+              <li>CSV collector cho dữ liệu offline.</li>
+              <li>Multi-exchange abstraction.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Model và Explainability</h3>
+            <ul>
+              <li>SHAP dashboard đầy đủ.</li>
+              <li>Walk-forward validation.</li>
+              <li>Model registry versioning.</li>
+              <li>Calibration cho probabilities.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Trading Research</h3>
+            <ul>
+              <li>Mở rộng multi-timeframe confirmation sang portfolio/risk allocation.</li>
+              <li>Portfolio mode.</li>
+              <li>Paper trading realtime loop.</li>
+              <li>Rule optimizer có kiểm soát leakage.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Product</h3>
+            <ul>
+              <li>Telegram alert nâng cao.</li>
+              <li>React charts realtime.</li>
+              <li>User-defined strategy templates.</li>
+              <li>Export report HTML/PDF.</li>
+            </ul>
+          </div>
+        </div>
+
+        <h2>Phụ lục: TradeSetup JSON mẫu</h2>
+        <pre>{
+  "symbol": "BTC/USDT",
+  "timeframe": "15m",
+  "timestamp": "2026-05-18T10:00:00",
+  "market_regime": "UPTREND",
+  "signal": "BUY",
+  "strategy": "TREND_FOLLOWING",
+  "confidence": 0.72,
+  "entry": 65000.0,
+  "stop_loss": 64200.0,
+  "take_profit_1": 66600.0,
+  "take_profit_2": 67400.0,
+  "risk_reward": 2.0,
+  "position_size": 0.012,
+  "reasons": [
+    "Regime is UPTREND.",
+    "Model BUY probability passed threshold.",
+    "EMA20 is above EMA50 and close is near/above EMA20.",
+    "RSI is in trend BUY range."
+  ],
+  "risk_notes": [],
+  "probability_source": "calibrated",
+  "probabilities": {"BUY": 0.71, "SELL": 0.12, "WAIT": 0.17},
+  "explanation_v2": {
+    "final_decision": "BUY",
+    "summary": "BUY from TREND_FOLLOWING with higher timeframe confirmation.",
+    "regime": {
+      "primary": "UPTREND",
+      "confidence": 0.76,
+      "transition_warning": false,
+      "higher_timeframes": [
+        {"timeframe": "1h", "regime": "UPTREND", "confidence": 0.82}
+      ]
+    },
+    "strategy": {
+      "selected": "TREND_FOLLOWING",
+      "passed_conditions": [
+        "Model BUY probability passed threshold.",
+        "EMA20 is above EMA50 and close is near/above EMA20."
+      ],
+      "failed_conditions": []
+    },
+    "risk": {
+      "risk_reward": 2.0,
+      "position_size": 0.012,
+      "risk_notes": []
+    },
+    "model": {
+      "probability_source": "calibrated",
+      "buy_probability": 0.71,
+      "sell_probability": 0.12,
+      "wait_probability": 0.17
+    },
+    "multi_timeframe": {
+      "enabled": true,
+      "primary_timeframe": "15m",
+      "confirmation_timeframes": ["1h", "4h"],
+      "conflict": false,
+      "confidence_multiplier": 1.0,
+      "confirmations": [
+        {
+          "timeframe": "1h",
+          "regime": "UPTREND",
+          "aligned": true,
+          "conflict": false
+        }
+      ]
+    },
+    "final_decision_summary": "BUY from TREND_FOLLOWING with higher timeframe confirmation."
+  }
+}</pre>
+
+        <div class="note">
+          <strong>Tóm tắt:</strong>
+          LocalQuant Assistant là một hệ thống gợi ý setup trading local, tập trung vào
+          pipeline rõ ràng: dữ liệu thật, feature sạch, regime filter, ML probability,
+          strategy rules, risk gate, backtest và UI. Thiết kế ưu tiên maintainability,
+          testability và khả năng mở rộng, thay vì over-engineering hoặc hứa hẹn lợi nhuận.
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

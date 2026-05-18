@@ -91,6 +91,10 @@ def main() -> None:
             step=0.1,
         )
         risk_percent = risk_percent_display / 100.0
+        multi_timeframe = st.checkbox(
+            "Multi-Timeframe Confirmation",
+            value=bool(service.settings.signal.multi_timeframe and service.settings.signal.multi_timeframe.enabled),
+        )
 
         if st.button("Update Data", use_container_width=True):
             _clear_caches()
@@ -111,6 +115,7 @@ def main() -> None:
                         timeframe=timeframe,
                         account_balance=account_balance,
                         risk_percent=risk_percent,
+                        multi_timeframe=multi_timeframe,
                     ).to_dict()
                     st.success("Signal generated.")
                     _clear_caches()
@@ -181,6 +186,13 @@ def _render_signal_tab(setup: dict[str, object] | None) -> None:
     cols[1].metric("Strategy", setup.get("strategy", "NONE"))
     cols[2].metric("Risk/Reward", _fmt(setup.get("risk_reward")))
     cols[3].metric("Position Size", _fmt(setup.get("position_size")))
+    st.caption(
+        "Probability source: "
+        f"{setup.get('probability_source', 'raw')} | "
+        f"Model: {setup.get('model_scope_used', '-')}"
+        f" {setup.get('model_version', '')} | "
+        f"Fallback: {setup.get('fallback_reason') or '-'}"
+    )
 
     levels = st.columns(4)
     levels[0].metric("Entry", _fmt(setup.get("entry")))
@@ -188,8 +200,44 @@ def _render_signal_tab(setup: dict[str, object] | None) -> None:
     levels[2].metric("Take Profit 1", _fmt(setup.get("take_profit_1")))
     levels[3].metric("Take Profit 2", _fmt(setup.get("take_profit_2")))
     render_explainability(_as_dict(setup.get("explainability")))
+    _render_structured_explanation(_as_dict(setup.get("explanation_v2")))
     render_reasons("Reasons", list(setup.get("reasons", [])))
     render_reasons("Risk Notes", list(setup.get("risk_notes", [])))
+
+
+def _render_structured_explanation(explanation: dict[str, object] | None) -> None:
+    """Render structured regime, strategy, risk, and multi-timeframe context."""
+    if not explanation:
+        return
+    st.subheader("Structured Explanation")
+    st.caption(str(explanation.get("summary", "")))
+    regime = _as_dict(explanation.get("regime")) or {}
+    strategy = _as_dict(explanation.get("strategy")) or {}
+    risk = _as_dict(explanation.get("risk")) or {}
+    model = _as_dict(explanation.get("model")) or {}
+    multi_timeframe = _as_dict(explanation.get("multi_timeframe")) or {}
+
+    cols = st.columns(4)
+    cols[0].metric("Primary Regime", regime.get("primary", "-"))
+    cols[1].metric("Regime Confidence", _fmt(regime.get("confidence")))
+    cols[2].metric("Selected Strategy", strategy.get("selected", "-"))
+    cols[3].metric("Probability Source", model.get("probability_source", "-"))
+
+    if multi_timeframe.get("enabled"):
+        st.caption("Higher Timeframe Confirmation")
+        render_dataframe_table(
+            pd.DataFrame(list(multi_timeframe.get("confirmations", []))),
+            "No higher timeframe confirmation rows were available.",
+        )
+    render_reasons(
+        "Passed Conditions",
+        [str(item) for item in strategy.get("passed_conditions", [])],
+    )
+    render_reasons(
+        "Failed Conditions",
+        [str(item) for item in strategy.get("failed_conditions", [])],
+    )
+    render_reasons("Risk Explanation", [str(item) for item in risk.get("risk_notes", [])])
 
 
 def _render_backtest_tab(reports: dict[str, BacktestReport] | None) -> None:
@@ -216,10 +264,21 @@ def _render_model_tab(metadata: dict[str, object] | None) -> None:
     if metadata is None:
         st.info("No model found. Please train a model first.")
         return
-    cols = st.columns(3)
+    cols = st.columns(5)
     cols[0].metric("Model Type", metadata.get("model_type", "UNKNOWN"))
     cols[1].metric("Trained At", metadata.get("trained_at", "-"))
     cols[2].metric("Feature Count", len(metadata.get("feature_columns", [])))
+    cols[3].metric("Version", metadata.get("model_version", "-"))
+    cols[4].metric("Status", metadata.get("status", "-"))
+    st.subheader("Model Calibration")
+    if metadata.get("calibration_enabled"):
+        calibration_cols = st.columns(4)
+        calibration_cols[0].metric("Method", metadata.get("calibration_method", "none"))
+        calibration_cols[1].metric("Brier Before", _fmt(metadata.get("brier_score_before")))
+        calibration_cols[2].metric("Brier After", _fmt(metadata.get("brier_score_after")))
+        calibration_cols[3].metric("Log Loss After", _fmt(metadata.get("log_loss_after")))
+    else:
+        st.warning("Model probabilities are not calibrated yet. Signal confidence uses raw model output.")
     st.subheader("Metrics")
     st.json(metadata.get("metrics", {}), expanded=False)
     st.subheader("Explainability")

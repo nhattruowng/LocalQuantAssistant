@@ -24,6 +24,7 @@ class PaperTrade:
     take_profit_2: float
     position_size: float
     confidence: float
+    market_regime: str = "UNKNOWN"
     closed_at: datetime | str | None = None
     exit_price: float | None = None
     pnl: float = 0.0

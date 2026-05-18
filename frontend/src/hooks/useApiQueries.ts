@@ -4,7 +4,9 @@ import {
   generateSignal,
   getCandles,
   getHealth,
+  getModelCalibration,
   getModelInfo,
+  getRiskStatus,
   getSignalHistory,
   getSymbols,
   getTimeframes,
@@ -44,11 +46,29 @@ export function useModelInfoQuery() {
   });
 }
 
+export function useModelCalibrationQuery() {
+  const { symbol, timeframe } = useAppSettings();
+  return useQuery({
+    queryKey: ["model-calibration", symbol, timeframe],
+    queryFn: () => getModelCalibration(symbol, timeframe),
+    retry: false,
+  });
+}
+
 export function useHistoryQuery() {
   const { symbol, timeframe } = useAppSettings();
   return useQuery({
     queryKey: ["history", symbol, timeframe],
     queryFn: () => getSignalHistory(symbol, timeframe),
+    retry: 1,
+  });
+}
+
+export function useRiskStatusQuery() {
+  const { symbol, timeframe } = useAppSettings();
+  return useQuery({
+    queryKey: ["risk-status", symbol, timeframe],
+    queryFn: () => getRiskStatus(symbol, timeframe),
     retry: 1,
   });
 }
@@ -71,12 +91,13 @@ export function useActions() {
       onSuccess: invalidate,
     }),
     generateSignal: useMutation({
-      mutationFn: () =>
+      mutationFn: (multiTimeframe?: boolean) =>
         generateSignal({
           symbol,
           timeframe,
           account_balance: accountBalance,
           risk_percent: riskPercent,
+          multi_timeframe: multiTimeframe,
         }),
       onSuccess: invalidate,
     }),

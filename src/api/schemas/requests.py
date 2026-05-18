@@ -23,6 +23,10 @@ class GenerateSignalRequest(SymbolTimeframeRequest):
 
     account_balance: float = Field(..., gt=0)
     risk_percent: float = Field(..., ge=0, description="Risk percent as UI percent, e.g. 1 for 1%.")
+    multi_timeframe: bool | None = Field(
+        default=None,
+        description="Override configured multi-timeframe confirmation for this request.",
+    )
 
 
 class RunBacktestRequest(SymbolTimeframeRequest):
@@ -30,3 +34,9 @@ class RunBacktestRequest(SymbolTimeframeRequest):
 
     initial_balance: float = Field(..., gt=0)
     risk_percent: float = Field(..., ge=0, description="Risk percent as UI percent, e.g. 1 for 1%.")
+
+
+class ModelLifecycleRequest(BaseModel):
+    """Request to promote or archive a model version."""
+
+    model_id: str = Field(..., examples=["BTC_USDT_15m_global_v001"])

@@ -10,9 +10,16 @@ from typing import Any, Protocol
 
 import pandas as pd
 
+from backtest.analysis import confidence_bucket, volatility_bucket
+from backtest.execution_cost import (
+    ExecutionCostModel,
+    create_execution_cost_model,
+    scenario_cost_models,
+)
 from backtest.metrics import build_report
 from backtest.models import BacktestReport, Trade, TradeResult
 from config.settings import Settings
+from ml.calibration.probability_calibrator import probability_payload
 from regime.market_regime import MarketRegime
 from signals.models import SignalType, TradeSetup
 from signals.signal_engine import SignalEngine
@@ -99,9 +106,15 @@ class ModelProbabilityProvider:
 
     mode = "ml_enhanced"
 
-    def __init__(self, model: Any, feature_columns: list[str]) -> None:
+    def __init__(
+        self,
+        model: Any,
+        feature_columns: list[str],
+        use_calibrated_probability: bool = True,
+    ) -> None:
         self._model = model
         self._feature_columns = feature_columns
+        self._use_calibrated_probability = use_calibrated_probability
 
     @property
     def model(self) -> Any:
@@ -118,6 +131,7 @@ class ModelProbabilityProvider:
         cls,
         model_path: Path,
         metadata_path: Path | None = None,
+        use_calibrated_probability: bool = True,
     ) -> "ModelProbabilityProvider":
         """Load a model and feature columns from disk."""
         import json
@@ -130,16 +144,35 @@ class ModelProbabilityProvider:
             feature_columns = list(metadata.get("feature_columns", []))
         if feature_columns is None or not feature_columns:
             raise ValueError("Model metadata must provide feature_columns for backtesting.")
-        return cls(model=model, feature_columns=feature_columns)
+        return cls(
+            model=model,
+            feature_columns=feature_columns,
+            use_calibrated_probability=use_calibrated_probability,
+        )
 
     def predict_proba(self, row: pd.Series) -> dict[str, float]:
         """Return model probabilities for one feature row."""
         return self.predict_proba_batch(pd.DataFrame([row]))[0]
 
+    def probability_payload(self, row: pd.Series) -> dict[str, Any]:
+        """Return selected, raw, and calibrated probabilities for one row."""
+        x = pd.DataFrame([row]).loc[:, self._feature_columns]
+        return probability_payload(
+            self._model,
+            x,
+            use_calibrated=self._use_calibrated_probability,
+        )
+
     def predict_proba_batch(self, rows: pd.DataFrame) -> list[dict[str, float]]:
         """Return model probabilities for many feature rows in one model call."""
         x = rows.loc[:, self._feature_columns]
-        probabilities = self._model.predict_proba(x)
+        if (
+            self._use_calibrated_probability
+            and getattr(self._model, "is_calibrated", False)
+        ):
+            probabilities = self._model.calibrated_predict_proba(x)
+        else:
+            probabilities = self._model.predict_proba(x)
         classes = getattr(self._model, "classes_", ["BUY", "SELL", "WAIT"])
         return [
             {str(label): float(probability) for label, probability in zip(classes, row)}
@@ -154,10 +187,16 @@ class Backtester:
         self,
         settings: Settings,
         signal_engine: SignalEngine | None = None,
+        execution_cost_model: ExecutionCostModel | None = None,
+        cost_model_name: str | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         self._settings = settings
         self._signal_engine = signal_engine or SignalEngine(settings)
+        self._execution_cost_model = execution_cost_model or create_execution_cost_model(
+            settings.backtest,
+            cost_model_name,
+        )
         self._logger = logger or logging.getLogger("localquant.backtest")
 
     def run(
@@ -198,16 +237,49 @@ class Backtester:
             )
             index = close_index + 1 + cooldown
 
-        report = build_report(symbol, timeframe, probability_provider.mode, trades)
+        report_mode = probability_provider.mode
+        if self._execution_cost_model.name != "fixed":
+            report_mode = f"{report_mode}_{self._execution_cost_model.name}"
+        report = build_report(symbol, timeframe, report_mode, trades)
         self._logger.info(
             "Backtest completed: mode=%s rows=%s trades=%s net_profit=%.4f elapsed_ms=%.2f",
-            probability_provider.mode,
+            report.mode,
             len(data),
             report.total_trades,
             report.net_profit,
             (perf_counter() - started_at) * 1000,
         )
         return report
+
+    def run_cost_scenarios(
+        self,
+        features: pd.DataFrame,
+        symbol: str,
+        timeframe: str,
+        probability_provider: ProbabilityProvider,
+    ) -> dict[str, BacktestReport]:
+        """Run standard execution cost scenarios for comparison."""
+        reports: dict[str, BacktestReport] = {}
+        for scenario, cost_model in scenario_cost_models(self._settings.backtest).items():
+            scenario_backtester = Backtester(
+                settings=self._settings,
+                signal_engine=self._signal_engine,
+                execution_cost_model=cost_model,
+                logger=self._logger,
+            )
+            report = scenario_backtester.run(
+                features=features,
+                symbol=symbol,
+                timeframe=timeframe,
+                probability_provider=probability_provider,
+            )
+            reports[scenario] = build_report(
+                symbol=report.symbol,
+                timeframe=report.timeframe,
+                mode=f"{probability_provider.mode}_{scenario}",
+                trades=report.trades,
+            )
+        return reports
 
     def _predict_probabilities(
         self,
@@ -254,18 +326,20 @@ class Backtester:
             raise ValueError("Actionable setup requires entry, stop loss, and take profit.")
 
         entry_raw = setup.entry
-        entry_fill = _apply_entry_slippage(
-            entry_raw,
-            setup.signal,
-            self._settings.backtest.slippage_rate,
+        signal_row = data.iloc[signal_index]
+        entry_fill = self._execution_cost_model.calculate_entry_fill(
+            price=entry_raw,
+            signal=setup.signal,
+            row=signal_row.to_dict(),
         )
         position_size = float(setup.position_size or 0.0)
         exit_simulation = self._find_exit(data, signal_index, setup)
+        exit_row = data.iloc[exit_simulation.close_index]
 
-        exit_fill = _apply_exit_slippage(
-            exit_simulation.raw_exit_price,
-            setup.signal,
-            self._settings.backtest.slippage_rate,
+        exit_fill = self._execution_cost_model.calculate_exit_fill(
+            price=exit_simulation.raw_exit_price,
+            signal=setup.signal,
+            row=exit_row.to_dict(),
         )
         cost = self._calculate_trade_cost(
             setup=setup,
@@ -301,6 +375,16 @@ class Backtester:
                 result=result,
                 confidence=setup.confidence,
                 reasons=setup.reasons,
+                market_regime=setup.market_regime,
+                confidence_bucket=confidence_bucket(setup.confidence),
+                volatility_bucket=volatility_bucket(
+                    atr_percent=float(data.iloc[signal_index].get("atr_percent", 0.0)),
+                    low_max=self._settings.backtest.volatility_low_max,
+                    normal_max=self._settings.backtest.volatility_normal_max,
+                    high_max=self._settings.backtest.volatility_high_max,
+                ),
+                atr_percent=float(data.iloc[signal_index].get("atr_percent", 0.0)),
+                holding_bars=exit_simulation.close_index - signal_index,
             ),
             exit_simulation.close_index,
         )
@@ -338,9 +422,10 @@ class Backtester:
     ) -> TradeCost:
         """Calculate PnL, fees, and slippage cost."""
         gross_pnl = _gross_pnl(setup.signal, entry_fill, exit_fill, position_size)
-        fees = (
-            abs(entry_fill * position_size) * self._settings.backtest.fee_rate
-            + abs(exit_fill * position_size) * self._settings.backtest.fee_rate
+        fees = self._execution_cost_model.calculate_fees(
+            entry_fill=entry_fill,
+            exit_fill=exit_fill,
+            position_size=position_size,
         )
         slippage = (
             abs(entry_fill - raw_entry) * position_size
@@ -377,20 +462,6 @@ def _column_or_default(rows: pd.DataFrame, column: str, default: object) -> pd.S
     if column in rows:
         return rows[column]
     return pd.Series(default, index=rows.index)
-
-
-def _apply_entry_slippage(price: float, signal: SignalType, slippage_rate: float) -> float:
-    """Apply adverse entry slippage."""
-    if signal is SignalType.BUY:
-        return price * (1.0 + slippage_rate)
-    return price * (1.0 - slippage_rate)
-
-
-def _apply_exit_slippage(price: float, signal: SignalType, slippage_rate: float) -> float:
-    """Apply adverse exit slippage."""
-    if signal is SignalType.BUY:
-        return price * (1.0 - slippage_rate)
-    return price * (1.0 + slippage_rate)
 
 
 def _gross_pnl(

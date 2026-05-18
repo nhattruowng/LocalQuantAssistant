@@ -30,4 +30,5 @@ class Strategy(ABC):
             indicator_score=0.0,
             volume_score=0.0,
             reasons=[reason],
+            failed_conditions=[reason],
         )

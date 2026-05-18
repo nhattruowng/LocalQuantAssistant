@@ -43,6 +43,11 @@ class Trade:
     result: TradeResult
     confidence: float
     reasons: list[str]
+    market_regime: str = "UNKNOWN"
+    confidence_bucket: str = "UNKNOWN"
+    volatility_bucket: str = "UNKNOWN"
+    atr_percent: float = 0.0
+    holding_bars: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize trade into primitive values."""
@@ -55,6 +60,28 @@ class Trade:
         if isinstance(self.closed_at, datetime):
             data["closed_at"] = self.closed_at.isoformat()
         return data
+
+
+@dataclass(frozen=True)
+class BacktestSegmentReport:
+    """Metrics for one filtered group of backtest trades."""
+
+    total_trades: int
+    winrate: float
+    gross_profit: float
+    gross_loss: float
+    net_profit: float
+    profit_factor: float
+    max_drawdown: float
+    expectancy: float
+    avg_holding_bars: float
+    avg_confidence: float
+    best_trade: float
+    worst_trade: float
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize segment metrics into primitive values."""
+        return asdict(self)
 
 
 @dataclass(frozen=True)
@@ -78,6 +105,7 @@ class BacktestReport:
     longest_win_streak: int
     longest_loss_streak: int
     trades: list[Trade]
+    grouped: dict[str, dict[str, BacktestSegmentReport]]
 
     def to_summary_dict(self) -> dict[str, Any]:
         """Serialize report summary without full trade payload."""

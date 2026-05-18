@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     take_profit_2 REAL NOT NULL,
     position_size REAL NOT NULL,
     confidence REAL NOT NULL,
+    market_regime TEXT DEFAULT 'UNKNOWN',
     exit_price REAL,
     pnl REAL DEFAULT 0,
     result TEXT,
@@ -73,3 +74,16 @@ CREATE TABLE IF NOT EXISTS paper_account_snapshots (
 
 CREATE INDEX IF NOT EXISTS idx_paper_account_snapshots_timestamp
 ON paper_account_snapshots(timestamp);
+
+CREATE TABLE IF NOT EXISTS risk_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME NOT NULL,
+    state TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    timeframe TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_risk_events_symbol_timeframe_timestamp
+ON risk_events(symbol, timeframe, timestamp);

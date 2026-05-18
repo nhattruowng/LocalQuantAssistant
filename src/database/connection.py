@@ -51,6 +51,7 @@ class SQLiteDatabase:
         """Create local tables if they do not exist."""
         schema_path = Path(__file__).resolve().parent / "schema.sql"
         self.connection.executescript(schema_path.read_text(encoding="utf-8"))
+        self._apply_migrations()
         self.connection.commit()
 
     def execute(self, query: str, parameters: tuple[Any, ...] = ()) -> sqlite3.Cursor:
@@ -75,6 +76,15 @@ class SQLiteDatabase:
             self._connection.close()
             self._connection = None
 
+    def _apply_migrations(self) -> None:
+        """Apply lightweight SQLite migrations for existing local databases."""
+        _add_column_if_missing(
+            self.connection,
+            table="paper_trades",
+            column="market_regime",
+            definition="TEXT DEFAULT 'UNKNOWN'",
+        )
+
 
 def create_database(settings: DatabaseSettings) -> Database:
     """Create a database implementation from settings."""
@@ -83,3 +93,15 @@ def create_database(settings: DatabaseSettings) -> Database:
     if settings.driver == "postgresql":
         raise NotImplementedError("PostgreSQL support can be added via Database protocol.")
     raise ValueError(f"Unsupported database driver: {settings.driver}")
+
+
+def _add_column_if_missing(
+    connection: sqlite3.Connection,
+    table: str,
+    column: str,
+    definition: str,
+) -> None:
+    """Add a SQLite column when an existing table lacks it."""
+    columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})")}
+    if column not in columns:
+        connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
