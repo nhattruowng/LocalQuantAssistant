@@ -593,15 +593,30 @@ Structured Explanation / Notification / Backtest / Paper Trading / UI / API</pre
           <code>shift(1)</code> trước khi rolling để candle hiện tại không tự làm resistance/support cho chính nó.
         </div>
 
-        <h2 id="regime">6. Market Regime Detector</h2>
+        <h2 id="regime">6. Market Regime và Market Context Engine</h2>
         <p>
-          Market regime là lớp filter để model không quyết định mù quáng. Detector thêm các cột:
+          Market regime là lớp filter để model không quyết định mù quáng. Detector vẫn giữ
+          nhãn hard-regime cũ để backward compatibility, đồng thời gọi
+          <code>MarketContextEngine</code> để tạo soft context nhiều điểm số. Detector thêm các cột:
           <code>rolling_high_20</code>, <code>rolling_low_20</code>, <code>market_regime</code>,
-          <code>trend_score</code>, <code>volatility_score</code>, <code>breakout_score</code>,
-          <code>regime_reason</code>.
+          <code>primary_regime</code>, <code>regime_scores</code>, <code>regime_confidence</code>,
+          <code>regime_uncertainty_score</code>, <code>volatility_level</code>,
+          <code>market_transition_warnings</code>, <code>trend_score</code>,
+          <code>volatility_score</code>, <code>breakout_score</code>, <code>regime_reason</code>.
         </p>
 
-        <h3>6.1 Thứ tự ưu tiên classify</h3>
+        <h3>6.1 Backward Compatibility</h3>
+        <p>
+          Nếu <code>adaptive_strategy.enabled=false</code>, <code>market_regime</code> tiếp tục dùng
+          logic hard-classification cũ. Soft context vẫn được xuất ra để explainability và phân tích,
+          nhưng không thay đổi strategy mapping hiện tại. Nếu bật adaptive strategy,
+          <code>market_regime</code> sẽ đi theo <code>primary_regime</code> từ soft context.
+        </p>
+
+        <pre>adaptive_strategy:
+  enabled: false</pre>
+
+        <h3>6.2 Thứ tự ưu tiên classify cũ</h3>
         <ol>
           <li><code>BREAKOUT_UP</code></li>
           <li><code>BREAKOUT_DOWN</code></li>
@@ -613,7 +628,7 @@ Structured Explanation / Notification / Backtest / Paper Trading / UI / API</pre
           <li><code>UNKNOWN</code> nếu không match hoặc thiếu indicator.</li>
         </ol>
 
-        <h3>6.2 Logic regime</h3>
+        <h3>6.3 Logic regime cứng</h3>
         <table>
           <thead>
             <tr>
@@ -657,6 +672,59 @@ Structured Explanation / Notification / Backtest / Paper Trading / UI / API</pre
               <td><code>LOW_VOLATILITY</code></td>
               <td>ATR percent nằm dưới percentile thấp.</td>
               <td>Thị trường nén, dễ thiếu động lượng.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>6.4 Soft Regime Context</h3>
+        <p>
+          <code>MarketContextEngine</code> chấm điểm đồng thời nhiều regime dựa trên EMA alignment,
+          EMA slope, ATR percent, Bollinger width, rolling high/low break, volume ratio,
+          candle body strength, vị trí close trong range và rejection wick. Output chính là
+          <code>RegimeContext</code>:
+        </p>
+        <pre>{
+  "primary_regime": "UPTREND",
+  "regime_scores": {
+    "UPTREND": 0.72,
+    "BREAKOUT_UP": 0.58,
+    "SIDEWAY": 0.24
+  },
+  "confidence": 0.72,
+  "uncertainty_score": 0.28,
+  "transition_warning": false,
+  "volatility_level": "NORMAL",
+  "reasons": ["Primary regime is UPTREND with score 0.72."]
+}</pre>
+
+        <h3>6.5 Transition Warning</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Warning</th>
+              <th>Điều kiện</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>SIDEWAY_ATR_EXPANSION</code></td>
+              <td>SIDEWAY context nhưng ATR percent hoặc ATR change tăng nhanh.</td>
+            </tr>
+            <tr>
+              <td><code>SIDEWAY_VOLUME_EXPANSION</code></td>
+              <td>SIDEWAY context nhưng volume ratio tăng mạnh.</td>
+            </tr>
+            <tr>
+              <td><code>RANGE_EDGE_PRESSURE</code></td>
+              <td>Close nằm sát rolling high/low, báo hiệu có thể sắp breakout.</td>
+            </tr>
+            <tr>
+              <td><code>UPTREND_SLOPE_WEAKENING</code></td>
+              <td>UPTREND context nhưng EMA slope yếu dần hoặc score không đủ chắc.</td>
+            </tr>
+            <tr>
+              <td><code>BREAKOUT_REJECTION_WICK</code></td>
+              <td>Breakout có rejection wick lớn, confidence breakout bị giảm.</td>
             </tr>
           </tbody>
         </table>
@@ -1172,7 +1240,15 @@ Kiểm tra TP/SL
   "regime": {
     "primary": "UPTREND",
     "confidence": 0.76,
+    "regime_scores": {
+      "UPTREND": 0.76,
+      "BREAKOUT_UP": 0.42,
+      "SIDEWAY": 0.18
+    },
+    "uncertainty_score": 0.24,
     "transition_warning": false,
+    "volatility_level": "NORMAL",
+    "transition_warnings": [],
     "higher_timeframes": [
       {"timeframe": "1h", "regime": "UPTREND", "confidence": 0.82}
     ]
@@ -1487,7 +1563,15 @@ make docker-down</pre>
     "regime": {
       "primary": "UPTREND",
       "confidence": 0.76,
+      "regime_scores": {
+        "UPTREND": 0.76,
+        "BREAKOUT_UP": 0.42,
+        "SIDEWAY": 0.18
+      },
+      "uncertainty_score": 0.24,
       "transition_warning": false,
+      "volatility_level": "NORMAL",
+      "transition_warnings": [],
       "higher_timeframes": [
         {"timeframe": "1h", "regime": "UPTREND", "confidence": 0.82}
       ]

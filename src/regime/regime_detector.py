@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from config.settings import MarketRegimeSettings
+from regime.market_context_engine import MarketContextEngine
 from regime.market_regime import MarketRegime, RegimeDetectionResult
 
 
@@ -28,7 +29,10 @@ REGIME_OUTPUT_COLUMNS = [
     "primary_regime",
     "regime_scores",
     "regime_confidence",
+    "regime_uncertainty_score",
     "transition_warning",
+    "volatility_level",
+    "market_transition_warnings",
     "trend_score",
     "volatility_score",
     "breakout_score",
@@ -41,6 +45,7 @@ class MarketRegimeDetector:
 
     def __init__(self, settings: MarketRegimeSettings) -> None:
         self._settings = settings
+        self._context_engine = MarketContextEngine(settings)
 
     def detect(self, features: pd.DataFrame) -> pd.DataFrame:
         """Return a new DataFrame with regime columns added."""
@@ -59,20 +64,47 @@ class MarketRegimeDetector:
         df["trend_score"] = self._trend_score(df)
         df["volatility_score"] = self._volatility_score(df)
         df["breakout_score"] = self._breakout_score(df)
+        df["atr_percent_change"] = df["atr_percent"].pct_change().replace(
+            [np.inf, -np.inf],
+            0.0,
+        )
+        df["ema_20_slope_change"] = df["ema_20_slope"].diff()
 
         df["market_regime"], df["regime_reason"] = self._classify(df)
-        soft_results = [self._soft_result(row) for _, row in df.iterrows()]
+        market_contexts = [self._context_engine.evaluate(row) for _, row in df.iterrows()]
+        soft_results = [context.regime for context in market_contexts]
         df["primary_regime"] = [result.primary_regime.value for result in soft_results]
         df["regime_scores"] = [
             json.dumps(result.regime_scores, sort_keys=True) for result in soft_results
         ]
         df["regime_confidence"] = [result.confidence for result in soft_results]
+        df["regime_uncertainty_score"] = [
+            result.uncertainty_score for result in soft_results
+        ]
         df["transition_warning"] = [result.transition_warning for result in soft_results]
+        df["volatility_level"] = [
+            result.volatility_level.value for result in soft_results
+        ]
+        df["market_transition_warnings"] = [
+            json.dumps(
+                [
+                    {
+                        "warning_type": warning.warning_type,
+                        "message": warning.message,
+                        "severity": round(warning.severity, 4),
+                    }
+                    for warning in result.warnings
+                ],
+                sort_keys=True,
+            )
+            for result in soft_results
+        ]
         df["regime_reason"] = [
             json.dumps(result.reasons) if result.reasons else reason
             for result, reason in zip(soft_results, df["regime_reason"], strict=False)
         ]
-        df["market_regime"] = df["primary_regime"]
+        if self._settings.adaptive_strategy_enabled:
+            df["market_regime"] = df["primary_regime"]
         return df
 
     def _validate_input(self, features: pd.DataFrame) -> None:
@@ -250,32 +282,7 @@ class MarketRegimeDetector:
 
     def _soft_result(self, row: pd.Series) -> RegimeDetectionResult:
         """Return soft regime scores for one feature row."""
-        if row[["close", "ema_20", "ema_50", "atr_percent", "bollinger_width"]].isna().any():
-            return RegimeDetectionResult(
-                primary_regime=MarketRegime.UNKNOWN,
-                regime_scores={MarketRegime.UNKNOWN.value: 1.0},
-                confidence=0.0,
-                transition_warning=True,
-                reasons=["Missing required indicator values."],
-            )
-
-        scores = self._soft_scores(row)
-        ordered = sorted(scores.items(), key=lambda item: item[1], reverse=True)
-        hard_regime = str(row.get("market_regime", MarketRegime.UNKNOWN.value))
-        if hard_regime in scores and hard_regime != MarketRegime.UNKNOWN.value:
-            primary = hard_regime
-            confidence = scores[primary]
-        else:
-            primary, confidence = ordered[0]
-        second_score = ordered[1][1] if len(ordered) > 1 else 0.0
-        transition_warning = confidence < 0.55 or (confidence - second_score) < 0.15
-        return RegimeDetectionResult(
-            primary_regime=MarketRegime(primary),
-            regime_scores={key: round(value, 4) for key, value in scores.items()},
-            confidence=round(confidence, 4),
-            transition_warning=transition_warning,
-            reasons=self._soft_reasons(primary, transition_warning),
-        )
+        return self._context_engine.evaluate(row).regime
 
     def _soft_scores(self, row: pd.Series) -> dict[str, float]:
         """Calculate bounded soft scores for all supported regimes."""

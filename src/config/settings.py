@@ -88,6 +88,7 @@ class MarketRegimeSettings:
     high_volatility_percentile: float
     low_volatility_percentile: float
     volatility_percentile_window: int
+    adaptive_strategy_enabled: bool = False
 
 
 @dataclass(frozen=True)

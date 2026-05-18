@@ -59,6 +59,8 @@ export function SignalPage({ latestSignal, onSignalGenerated }: SignalPageProps)
           <MetricCard label="Fallback" value={latestSignal?.fallback_reason ?? "-"} />
           <MetricCard label="Selected Strategy" value={explanation?.strategy?.selected ?? latestSignal?.strategy ?? "-"} />
           <MetricCard label="MTF" value={explanation?.multi_timeframe?.enabled ? "Enabled" : "Disabled"} />
+          <MetricCard label="Regime Uncertainty" value={formatPercent(explanation?.regime?.uncertainty_score)} />
+          <MetricCard label="Volatility" value={explanation?.regime?.volatility_level ?? "-"} />
         </div>
       </div>
       {explanation ? (
@@ -86,6 +88,19 @@ export function SignalPage({ latestSignal, onSignalGenerated }: SignalPageProps)
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">No higher timeframe data available.</p>
+              )}
+            </div>
+            <div>
+              <h4 className="mb-2 text-sm font-medium">Regime Scores</h4>
+              {explanation.regime?.regime_scores ? (
+                <ul className="space-y-1 text-sm text-muted-foreground">
+                  {Object.entries(explanation.regime.regime_scores)
+                    .sort(([, left], [, right]) => right - left)
+                    .slice(0, 5)
+                    .map(([regime, score]) => <li key={regime}>{regime}: {formatPercent(score)}</li>)}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">No regime score payload.</p>
               )}
             </div>
             <div>

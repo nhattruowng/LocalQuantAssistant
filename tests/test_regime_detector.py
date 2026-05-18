@@ -45,6 +45,8 @@ def test_detector_outputs_soft_regime_metadata():
     assert scores[MarketRegime.UPTREND.value] > 0.0
     assert 0.0 <= result["regime_confidence"].iloc[-1] <= 1.0
     assert isinstance(result["transition_warning"].iloc[-1], bool)
+    assert "regime_uncertainty_score" in result
+    assert "volatility_level" in result
 
 
 def test_detects_downtrend():
@@ -138,6 +140,104 @@ def test_detects_unknown_when_indicators_missing():
     result = detector.detect(features)
 
     assert result["market_regime"].iloc[-1] == MarketRegime.UNKNOWN.value
+
+
+def test_soft_context_uptrend_scores_highest():
+    detector = MarketRegimeDetector(_settings_without_volatility_filter())
+    features = _base_features()
+    features.loc[features.index[-1], ["close", "ema_20", "ema_50", "ema_20_slope"]] = [
+        112.0,
+        106.0,
+        100.0,
+        0.8,
+    ]
+    features.loc[features.index[-1], ["open", "high", "low"]] = [105.0, 113.0, 104.0]
+
+    result = detector.detect(features)
+    scores = json.loads(result["regime_scores"].iloc[-1])
+
+    assert max(scores, key=scores.get) == MarketRegime.UPTREND.value
+    assert scores[MarketRegime.UPTREND.value] > scores[MarketRegime.SIDEWAY.value]
+
+
+def test_sideway_with_volume_expansion_sets_transition_warning():
+    detector = MarketRegimeDetector(_settings_without_volatility_filter())
+    features = _base_features()
+    features.loc[features.index[-1], ["close", "ema_20", "ema_50", "ema_20_slope"]] = [
+        100.0,
+        100.05,
+        99.95,
+        0.0,
+    ]
+    features.loc[features.index[-1], ["bollinger_width", "atr_percent", "volume_ratio"]] = [
+        0.015,
+        0.01,
+        2.5,
+    ]
+
+    result = detector.detect(features)
+    warnings = json.loads(result["market_transition_warnings"].iloc[-1])
+
+    assert result["transition_warning"].iloc[-1] == True
+    assert any(item["warning_type"] == "SIDEWAY_VOLUME_EXPANSION" for item in warnings)
+
+
+def test_breakout_rejection_wick_reduces_confidence():
+    detector = MarketRegimeDetector(_default_settings())
+    features = _base_features()
+    features.loc[features.index[-1], ["open", "high", "low", "close"]] = [
+        125.0,
+        150.0,
+        124.0,
+        130.0,
+    ]
+    features.loc[features.index[-1], ["volume_ratio", "atr_percent"]] = [2.2, 0.03]
+
+    result = detector.detect(features)
+    warnings = json.loads(result["market_transition_warnings"].iloc[-1])
+    scores = json.loads(result["regime_scores"].iloc[-1])
+
+    assert any(item["warning_type"] == "BREAKOUT_REJECTION_WICK" for item in warnings)
+    assert result["regime_confidence"].iloc[-1] < 0.75
+    assert scores[MarketRegime.BREAKOUT_UP.value] < 0.75
+
+
+def test_soft_context_missing_indicator_falls_back_safely():
+    detector = MarketRegimeDetector(_default_settings())
+    features = _base_features()
+    features.loc[features.index[-1], "bollinger_width"] = None
+
+    result = detector.detect(features)
+    scores = json.loads(result["regime_scores"].iloc[-1])
+
+    assert result["primary_regime"].iloc[-1] == MarketRegime.UNKNOWN.value
+    assert scores[MarketRegime.UNKNOWN.value] == 1.0
+    assert result["regime_uncertainty_score"].iloc[-1] == 1.0
+
+
+def test_adaptive_disabled_keeps_hard_market_regime():
+    settings = replace(
+        _settings_without_volatility_filter(),
+        adaptive_strategy_enabled=False,
+    )
+    detector = MarketRegimeDetector(settings)
+    features = _base_features()
+    features.loc[features.index[-1], ["close", "ema_20", "ema_50", "ema_20_slope"]] = [
+        100.0,
+        100.1,
+        99.9,
+        0.0,
+    ]
+    features.loc[features.index[-1], ["bollinger_width", "atr_percent", "volume_ratio"]] = [
+        0.02,
+        0.01,
+        2.5,
+    ]
+
+    result = detector.detect(features)
+
+    assert result["market_regime"].iloc[-1] == MarketRegime.SIDEWAY.value
+    assert result["primary_regime"].iloc[-1] != ""
 
 
 def _default_settings() -> MarketRegimeSettings:

@@ -42,7 +42,11 @@ export interface StructuredExplanation {
   regime: {
     primary?: string;
     confidence?: number;
+    regime_scores?: Record<string, number>;
+    uncertainty_score?: number;
     transition_warning?: boolean;
+    volatility_level?: string;
+    transition_warnings?: Array<Record<string, unknown>>;
     higher_timeframes?: Array<Record<string, unknown>>;
   };
   strategy: {

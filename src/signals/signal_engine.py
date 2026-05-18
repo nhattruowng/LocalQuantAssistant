@@ -487,7 +487,25 @@ class SignalEngine:
             "regime": {
                 "primary": context.regime_value(),
                 "confidence": round(context.regime_confidence, 4),
+                "regime_scores": dict(context.soft_regime_scores()),
+                "uncertainty_score": _feature_float(
+                    context.primary_features or context.features,
+                    "regime_uncertainty_score",
+                    round(1.0 - context.regime_confidence, 4),
+                ),
                 "transition_warning": context.transition_warning,
+                "volatility_level": str(
+                    (context.primary_features or context.features).get(
+                        "volatility_level",
+                        "UNKNOWN",
+                    )
+                ),
+                "transition_warnings": _json_list(
+                    (context.primary_features or context.features).get(
+                        "market_transition_warnings",
+                        [],
+                    )
+                ),
                 "higher_timeframes": higher,
             },
             "strategy": {
@@ -872,6 +890,19 @@ def _transition_warning(features: Mapping[str, object]) -> bool:
     if isinstance(value, str):
         return value.lower() in {"true", "1", "yes"}
     return bool(value)
+
+
+def _json_list(value: object) -> list[object]:
+    """Return list payloads from JSON strings or list values."""
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except json.JSONDecodeError:
+            return []
+        return decoded if isinstance(decoded, list) else []
+    return []
 
 
 def _probability_values(

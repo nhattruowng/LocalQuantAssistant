@@ -50,6 +50,9 @@ market_regime:
   low_volatility_percentile: 0.2
   volatility_percentile_window: 100
 
+adaptive_strategy:
+  enabled: false
+
 model:
   path: null
   fallback_action_probability: 0.62

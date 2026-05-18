@@ -62,6 +62,9 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
     features_config = raw_config.get("features", {})
     feature_toggles_config = raw_config.get("feature_toggles", {})
     regime_config = raw_config.get("market_regime", {})
+    adaptive_strategy_config = raw_config.get("adaptive_strategy", {})
+    if not isinstance(adaptive_strategy_config, dict):
+        adaptive_strategy_config = {}
     model_config = raw_config.get("model", {})
     risk_config = raw_config.get("risk", {})
     risk_guard_config = raw_config.get("risk_guard", {})
@@ -174,6 +177,9 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
             ),
             volatility_percentile_window=int(
                 regime_config.get("volatility_percentile_window", 100)
+            ),
+            adaptive_strategy_enabled=bool(
+                adaptive_strategy_config.get("enabled", regime_config.get("adaptive_strategy_enabled", False))
             ),
         ),
         model=ModelSettings(

@@ -19,6 +19,15 @@ class MarketRegime(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
+class VolatilityLevel(str, Enum):
+    """Normalized volatility levels used by market context."""
+
+    LOW = "LOW"
+    NORMAL = "NORMAL"
+    HIGH = "HIGH"
+    EXTREME = "EXTREME"
+
+
 @dataclass(frozen=True)
 class RegimeScore:
     """Soft score for one market regime."""
@@ -29,11 +38,55 @@ class RegimeScore:
 
 
 @dataclass(frozen=True)
-class RegimeDetectionResult:
-    """Soft market regime detection result for one feature row."""
+class MarketTransitionWarning:
+    """Warning that the current regime may be transitioning."""
+
+    warning_type: str
+    message: str
+    severity: float = 0.0
+
+
+@dataclass(frozen=True)
+class RegimeContext:
+    """Soft regime state for one feature row."""
 
     primary_regime: MarketRegime
     regime_scores: dict[str, float]
     confidence: float
+    uncertainty_score: float
     transition_warning: bool
+    volatility_level: VolatilityLevel
     reasons: list[str] = field(default_factory=list)
+    warnings: list[MarketTransitionWarning] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class MarketContext:
+    """Complete soft market context produced by the context engine."""
+
+    regime: RegimeContext
+    transition_warnings: list[MarketTransitionWarning] = field(default_factory=list)
+    features_used: list[str] = field(default_factory=list)
+
+    @property
+    def primary_regime(self) -> MarketRegime:
+        """Return the highest-confidence regime."""
+        return self.regime.primary_regime
+
+    @property
+    def regime_scores(self) -> dict[str, float]:
+        """Return soft regime scores."""
+        return self.regime.regime_scores
+
+    @property
+    def confidence(self) -> float:
+        """Return confidence of the primary regime."""
+        return self.regime.confidence
+
+    @property
+    def uncertainty_score(self) -> float:
+        """Return uncertainty as 1 - confidence."""
+        return self.regime.uncertainty_score
+
+
+RegimeDetectionResult = RegimeContext
