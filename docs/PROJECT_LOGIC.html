@@ -932,6 +932,70 @@ Output:
   + volume_quality * 0.10
   + risk_reward_score * 0.05</pre>
 
+        <h3>9.2 Adaptive Decision Engine</h3>
+        <p>
+          <code>AdaptiveDecisionEngine</code> nhận nhiều <code>StrategyOpinion</code> và quyết định
+          BUY/SELL/WAIT cuối cùng. Engine không dùng một ngưỡng xác suất cố định; nó tính
+          <code>adaptive_threshold</code> theo độ rõ của regime, uncertainty, volatility,
+          higher timeframe conflict, probability calibration và xác nhận volume/trend.
+        </p>
+
+        <pre>adaptive_strategy:
+  enabled: true
+  base_threshold: 0.65
+  min_opinion_score: 0.55
+  conflict_margin: 0.12
+  high_uncertainty_threshold: 0.45
+  require_calibrated_probability: false
+  allow_grade_c_signal: false</pre>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Tình huống</th>
+              <th>Điều chỉnh</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Regime confidence thấp hoặc uncertainty cao</td>
+              <td>Tăng threshold để tránh trade khi bối cảnh mập mờ.</td>
+            </tr>
+            <tr>
+              <td>HIGH / EXTREME volatility</td>
+              <td>Tăng threshold và giảm confidence cuối.</td>
+            </tr>
+            <tr>
+              <td>Higher timeframe conflict</td>
+              <td>Tăng threshold; nếu conflict BUY/SELL giữa opinions quá sát thì WAIT.</td>
+            </tr>
+            <tr>
+              <td>Thiếu calibrated probability khi config yêu cầu</td>
+              <td>Tăng threshold vì probability raw kém tin cậy hơn.</td>
+            </tr>
+            <tr>
+              <td>Volume confirmation hoặc trend alignment rất rõ</td>
+              <td>Giảm nhẹ threshold.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <pre>{
+  "final_signal": "BUY",
+  "selected_strategy": "TREND_FOLLOWING",
+  "adaptive_threshold": 0.66,
+  "final_score": 0.74,
+  "final_confidence": 0.63,
+  "setup_quality": "B",
+  "decision_reasons": ["Selected TREND_FOLLOWING with score 0.7400."],
+  "decision_warnings": [],
+  "size_multiplier": 0.8,
+  "conflict_result": {
+    "has_conflict": false,
+    "score_gap": 0.18
+  }
+}</pre>
+
         <table>
           <thead>
             <tr>
@@ -959,7 +1023,7 @@ Output:
           </tbody>
         </table>
 
-        <h3>9.2 Trend Following</h3>
+        <h3>9.3 Trend Following</h3>
         <table>
           <thead>
             <tr>
@@ -990,7 +1054,7 @@ Output:
           </tbody>
         </table>
 
-        <h3>9.3 Breakout Confirmation</h3>
+        <h3>9.4 Breakout Confirmation</h3>
         <table>
           <thead>
             <tr>
@@ -1019,7 +1083,7 @@ Output:
           </tbody>
         </table>
 
-        <h3>9.4 Mean Reversion</h3>
+        <h3>9.5 Mean Reversion</h3>
         <p>
           Mean Reversion chỉ chạy trong <code>SIDEWAY</code>. Xác suất threshold thấp hơn
           vì sideway thường ít momentum hơn trend/breakout.
@@ -1312,6 +1376,10 @@ Kiểm tra TP/SL
   "strategy": {
     "selected": "TREND_FOLLOWING",
     "selected_score": 0.72,
+    "adaptive_threshold": 0.66,
+    "setup_quality": "B",
+    "conflict_result": {"has_conflict": false},
+    "decision_warnings": [],
     "passed_conditions": ["BUY probability passed threshold."],
     "failed_conditions": []
   },
@@ -1634,6 +1702,10 @@ make docker-down</pre>
     },
     "strategy": {
       "selected": "TREND_FOLLOWING",
+      "adaptive_threshold": 0.66,
+      "setup_quality": "B",
+      "conflict_result": {"has_conflict": false},
+      "decision_warnings": [],
       "passed_conditions": [
         "Model BUY probability passed threshold.",
         "EMA20 is above EMA50 and close is near/above EMA20."

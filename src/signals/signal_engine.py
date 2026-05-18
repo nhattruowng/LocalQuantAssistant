@@ -11,7 +11,12 @@ from config.settings import Settings
 from regime.market_regime import MarketRegime
 from risk.risk_guard import RiskGuard, RiskGuardContext
 from risk.risk_manager import RiskManager
+from signals.adaptive_decision_engine import (
+    AdaptiveDecisionEngine,
+    adaptive_decision_to_dict,
+)
 from signals.models import (
+    AdaptiveThresholdContext,
     RiskPlan,
     SignalContext,
     SignalType,
@@ -206,60 +211,63 @@ class SignalEngine:
 
     def _adaptive_strategy_enabled(self) -> bool:
         """Return True when Strategy Opinion Ensemble is enabled."""
-        return bool(self._settings.market_regime.adaptive_strategy_enabled)
+        return bool(
+            self._settings.adaptive_strategy.enabled
+            or self._settings.market_regime.adaptive_strategy_enabled
+        )
 
     def _adaptive_decision(
         self,
         context: SignalContext,
     ) -> tuple[StrategyDecision | None, dict[str, object]]:
-        """Evaluate all strategy opinion agents and select the strongest opinion."""
+        """Evaluate all strategy opinions and let AdaptiveDecisionEngine select."""
         opinions = [agent.evaluate(context) for agent in self._opinion_agents]
-        opinions.sort(key=lambda opinion: opinion.score, reverse=True)
+        decision = AdaptiveDecisionEngine(self._settings.adaptive_strategy).decide(
+            opinions,
+            _adaptive_threshold_context(context),
+        )
         diagnostics: dict[str, object] = {
             "adaptive_strategy": True,
             "strategy_opinions": [opinion_to_dict(opinion) for opinion in opinions],
-            "rejected_strategies": [
-                opinion_to_dict(opinion)
-                for opinion in opinions
-                if opinion.suggested_signal is SignalType.WAIT
-            ],
-            "reasons": [],
+            "adaptive_decision": adaptive_decision_to_dict(decision),
+            "adaptive_threshold": decision.adaptive_threshold,
+            "setup_quality": decision.setup_quality.value,
+            "conflict_result": adaptive_decision_to_dict(decision)["conflict_result"],
+            "decision_warnings": decision.decision_warnings,
+            "why_wait": adaptive_decision_to_dict(decision)["why_wait"],
+            "rejected_strategies": [opinion_to_dict(opinion) for opinion in decision.rejected_opinions],
+            "reasons": decision.decision_reasons,
         }
-        actionable = [
-            opinion
-            for opinion in opinions
-            if opinion.suggested_signal is not SignalType.WAIT and opinion.score >= 0.35
-        ]
-        if not actionable:
-            diagnostics["reasons"] = ["No strategy opinion produced an actionable setup."]
+        if decision.selected_opinion is not None:
+            top = decision.selected_opinion
+            diagnostics["selected_strategy_opinion"] = opinion_to_dict(top)
+            diagnostics["selected_strategy"] = {
+                "strategy_type": top.strategy_type.value,
+                "signal": top.suggested_signal.value,
+                "score": top.score,
+                "confidence": top.confidence,
+                "reasons": top.reasons,
+                "failed_conditions": top.failed_conditions,
+            }
+        if decision.final_signal is SignalType.WAIT:
             return None, diagnostics
 
-        top = actionable[0]
-        diagnostics["selected_strategy_opinion"] = opinion_to_dict(top)
-        diagnostics["selected_strategy"] = {
-            "strategy_type": top.strategy_type.value,
-            "signal": top.suggested_signal.value,
-            "score": top.score,
-            "confidence": top.confidence,
-            "reasons": top.reasons,
-            "failed_conditions": top.failed_conditions,
-        }
-        diagnostics["reasons"] = [
-            f"Selected {top.strategy_type.value} opinion with score {top.score:.4f}."
-        ]
+        top = decision.selected_opinion
+        if top is None:
+            return None, diagnostics
         return StrategyDecision(
-            signal=top.suggested_signal,
-            strategy=top.strategy_type,
-            model_probability=context.probability(top.suggested_signal),
-            trend_score=top.score,
-            indicator_score=top.score,
-            volume_score=top.score,
+            signal=decision.final_signal,
+            strategy=decision.selected_strategy,
+            model_probability=context.probability(decision.final_signal),
+            trend_score=decision.final_score,
+            indicator_score=decision.final_score,
+            volume_score=decision.final_score,
             reasons=[
-                *top.reasons,
-                *[f"Warning: {warning}" for warning in top.warnings],
+                *decision.decision_reasons,
+                *[f"Warning: {warning}" for warning in decision.decision_warnings],
             ],
-            score=top.score,
-            confidence=top.confidence,
+            score=decision.final_score,
+            confidence=decision.final_confidence,
             failed_conditions=top.failed_conditions,
         ), diagnostics
 
@@ -622,6 +630,11 @@ class SignalEngine:
                 "selected_score": selected_strategy.get("score") if selected_strategy else None,
                 "selected_opinion": (diagnostics or {}).get("selected_strategy_opinion"),
                 "strategy_opinions": (diagnostics or {}).get("strategy_opinions", []),
+                "adaptive_threshold": (diagnostics or {}).get("adaptive_threshold"),
+                "conflict_result": (diagnostics or {}).get("conflict_result"),
+                "setup_quality": (diagnostics or {}).get("setup_quality"),
+                "decision_warnings": (diagnostics or {}).get("decision_warnings", []),
+                "why_wait": (diagnostics or {}).get("why_wait"),
                 "passed_conditions": list(passed_conditions),
                 "failed_conditions": list(failed_conditions),
                 "rejected_strategies": (diagnostics or {}).get("rejected_strategies", []),
@@ -843,6 +856,51 @@ def _with_regime(context: SignalContext, regime: MarketRegime) -> SignalContext:
     )
 
 
+def _adaptive_threshold_context(context: SignalContext) -> AdaptiveThresholdContext:
+    """Build threshold context from signal features and higher timeframe state."""
+    features = context.primary_features or context.features
+    uncertainty = _feature_float(
+        features,
+        "regime_uncertainty_score",
+        max(0.0, 1.0 - context.regime_confidence),
+    )
+    volume_ratio = _feature_float(features, "volume_ratio", 1.0)
+    trend_alignment = abs(_feature_float(features, "trend_score", 0.0))
+    return AdaptiveThresholdContext(
+        regime_confidence=context.regime_confidence,
+        uncertainty_score=uncertainty,
+        volatility_level=str(features.get("volatility_level", "NORMAL")),
+        higher_timeframe_conflict=_has_higher_timeframe_conflict(context),
+        recent_strategy_performance=_optional_feature_float(
+            features,
+            "recent_strategy_performance",
+        ),
+        probability_source=context.probability_source,
+        volume_quality=max(0.0, min(volume_ratio / 1.5, 1.0)),
+        trend_alignment=max(0.0, min(trend_alignment, 1.0)),
+    )
+
+
+def _has_higher_timeframe_conflict(context: SignalContext) -> bool:
+    """Return True when higher timeframes conflict with strongest model side."""
+    buy_probability = context.probability(SignalType.BUY)
+    sell_probability = context.probability(SignalType.SELL)
+    signal = SignalType.BUY if buy_probability >= sell_probability else SignalType.SELL
+    for regime in context.higher_timeframe_regimes.values():
+        value = regime.value if isinstance(regime, MarketRegime) else str(regime)
+        if signal is SignalType.BUY and value in {
+            MarketRegime.DOWNTREND.value,
+            MarketRegime.BREAKOUT_DOWN.value,
+        }:
+            return True
+        if signal is SignalType.SELL and value in {
+            MarketRegime.UPTREND.value,
+            MarketRegime.BREAKOUT_UP.value,
+        }:
+            return True
+    return False
+
+
 def _higher_timeframe_regimes(
     payloads: Mapping[str, Mapping[str, object]],
 ) -> dict[str, str]:
@@ -870,6 +928,19 @@ def _feature_float(
         return float(payload.get(key, default))
     except (TypeError, ValueError):
         return default
+
+
+def _optional_feature_float(
+    payload: Mapping[str, object],
+    key: str,
+) -> float | None:
+    """Read an optional numeric feature value."""
+    if key not in payload:
+        return None
+    try:
+        return float(payload[key])
+    except (TypeError, ValueError):
+        return None
 
 
 def _timeframe_conflicts(signal: SignalType, regime: str, strength: float) -> bool:

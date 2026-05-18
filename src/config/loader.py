@@ -13,6 +13,7 @@ except ModuleNotFoundError:  # pragma: no cover - exercised only without PyYAML
 
 from config.settings import (
     AppSettings,
+    AdaptiveStrategySettings,
     BacktestSettings,
     CollectorSettings,
     DatabaseSettings,
@@ -180,6 +181,25 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
             ),
             adaptive_strategy_enabled=bool(
                 adaptive_strategy_config.get("enabled", regime_config.get("adaptive_strategy_enabled", False))
+            ),
+        ),
+        adaptive_strategy=AdaptiveStrategySettings(
+            enabled=bool(adaptive_strategy_config.get("enabled", False)),
+            base_threshold=float(adaptive_strategy_config.get("base_threshold", 0.65)),
+            min_opinion_score=float(
+                adaptive_strategy_config.get("min_opinion_score", 0.55)
+            ),
+            conflict_margin=float(
+                adaptive_strategy_config.get("conflict_margin", 0.12)
+            ),
+            high_uncertainty_threshold=float(
+                adaptive_strategy_config.get("high_uncertainty_threshold", 0.45)
+            ),
+            require_calibrated_probability=bool(
+                adaptive_strategy_config.get("require_calibrated_probability", False)
+            ),
+            allow_grade_c_signal=bool(
+                adaptive_strategy_config.get("allow_grade_c_signal", False)
             ),
         ),
         model=ModelSettings(
@@ -624,6 +644,15 @@ def _validate_settings(settings: Settings) -> None:
         raise ValueError("Backtest volatility bucket thresholds must be increasing.")
     if settings.risk.account_balance < 0 or settings.risk.risk_per_trade_pct < 0:
         raise ValueError("Risk account balance and risk percent must be non-negative.")
+    adaptive = settings.adaptive_strategy
+    if adaptive.base_threshold < 0 or adaptive.base_threshold > 1:
+        raise ValueError("Adaptive strategy base_threshold must be between 0 and 1.")
+    if adaptive.min_opinion_score < 0 or adaptive.min_opinion_score > 1:
+        raise ValueError("Adaptive strategy min_opinion_score must be between 0 and 1.")
+    if adaptive.conflict_margin < 0:
+        raise ValueError("Adaptive strategy conflict_margin must be non-negative.")
+    if adaptive.high_uncertainty_threshold < 0 or adaptive.high_uncertainty_threshold > 1:
+        raise ValueError("Adaptive strategy high_uncertainty_threshold must be between 0 and 1.")
     if settings.risk_guard.max_trades_per_day <= 0:
         raise ValueError("Risk guard max_trades_per_day must be positive.")
     if settings.risk_guard.max_consecutive_losses <= 0:

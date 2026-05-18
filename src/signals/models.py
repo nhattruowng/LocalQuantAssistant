@@ -38,6 +38,16 @@ class SetupGrade(str, Enum):
     D = "D"
 
 
+class SetupQualityGrade(str, Enum):
+    """Final adaptive setup quality grade."""
+
+    A_PLUS = "A_PLUS"
+    A = "A"
+    B = "B"
+    C = "C"
+    D = "D"
+
+
 @dataclass(frozen=True)
 class SignalContext:
     """Input context for strategy and signal decisions."""
@@ -169,6 +179,49 @@ class StrategyOpinion:
     passed_conditions: list[str] = field(default_factory=list)
     failed_conditions: list[str] = field(default_factory=list)
     suggested_size_multiplier: float = 1.0
+
+
+@dataclass(frozen=True)
+class AdaptiveThresholdContext:
+    """Inputs used to adjust the adaptive decision threshold."""
+
+    regime_confidence: float = 1.0
+    uncertainty_score: float = 0.0
+    volatility_level: str = "NORMAL"
+    higher_timeframe_conflict: bool = False
+    recent_strategy_performance: float | None = None
+    probability_source: str = "raw"
+    volume_quality: float = 0.0
+    trend_alignment: float = 0.0
+
+
+@dataclass(frozen=True)
+class DecisionConflictResult:
+    """Conflict analysis between top strategy opinions."""
+
+    has_conflict: bool
+    top_signal: SignalType | None = None
+    second_signal: SignalType | None = None
+    score_gap: float | None = None
+    reason: str | None = None
+
+
+@dataclass(frozen=True)
+class AdaptiveDecision:
+    """Final adaptive decision selected from strategy opinions."""
+
+    final_signal: SignalType
+    selected_strategy: StrategyType
+    selected_opinion: StrategyOpinion | None
+    rejected_opinions: list[StrategyOpinion]
+    adaptive_threshold: float
+    final_score: float
+    final_confidence: float
+    setup_quality: SetupQualityGrade
+    decision_reasons: list[str]
+    decision_warnings: list[str]
+    size_multiplier: float
+    conflict_result: DecisionConflictResult
 
 
 @dataclass(frozen=True)

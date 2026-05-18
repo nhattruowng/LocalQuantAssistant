@@ -54,6 +54,11 @@ export interface StructuredExplanation {
     selected_score?: number | null;
     selected_opinion?: Record<string, unknown> | null;
     strategy_opinions?: Array<Record<string, unknown>>;
+    adaptive_threshold?: number | null;
+    conflict_result?: Record<string, unknown> | null;
+    setup_quality?: string | null;
+    decision_warnings?: string[];
+    why_wait?: string | null;
     passed_conditions?: string[];
     failed_conditions?: string[];
     rejected_strategies?: Array<Record<string, unknown>>;

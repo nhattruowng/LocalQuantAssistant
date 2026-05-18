@@ -152,6 +152,19 @@ class MultiTimeframeSettings:
 
 
 @dataclass(frozen=True)
+class AdaptiveStrategySettings:
+    """Adaptive decision settings for strategy opinion ensemble."""
+
+    enabled: bool = False
+    base_threshold: float = 0.65
+    min_opinion_score: float = 0.55
+    conflict_margin: float = 0.12
+    high_uncertainty_threshold: float = 0.45
+    require_calibrated_probability: bool = False
+    allow_grade_c_signal: bool = False
+
+
+@dataclass(frozen=True)
 class SignalSettings:
     """Signal decision settings."""
 
@@ -304,6 +317,7 @@ class Settings:
     features: FeatureSettings
     feature_toggles: FeatureToggleSettings
     market_regime: MarketRegimeSettings
+    adaptive_strategy: AdaptiveStrategySettings
     model: ModelSettings
     risk: RiskSettings
     risk_guard: RiskGuardSettings
