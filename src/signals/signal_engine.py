@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import logging
 import json
 from typing import Mapping
@@ -23,6 +24,12 @@ from signals.models import (
 from strategy.base import Strategy
 from strategy.breakout import BreakoutStrategy
 from strategy.mean_reversion import MeanReversionStrategy
+from strategy.opinion_agents import (
+    BreakoutOpinionAgent,
+    MeanReversionOpinionAgent,
+    TrendFollowingOpinionAgent,
+    opinion_to_dict,
+)
 from strategy.trend_following import TrendFollowingStrategy
 
 
@@ -49,6 +56,11 @@ class SignalEngine:
             MarketRegime.BREAKOUT_DOWN.value: BreakoutStrategy(settings.signal),
             MarketRegime.SIDEWAY.value: MeanReversionStrategy(settings.signal),
         }
+        self._opinion_agents = [
+            TrendFollowingOpinionAgent(settings.signal),
+            BreakoutOpinionAgent(settings.signal),
+            MeanReversionOpinionAgent(settings.signal),
+        ]
 
     def generate(
         self,
@@ -106,7 +118,17 @@ class SignalEngine:
             "fallback_reason": fallback_reason,
         }
         diagnostics: dict[str, object] | None = None
-        if self._ensemble_enabled():
+        if self._adaptive_strategy_enabled():
+            decision, diagnostics = self._adaptive_decision(context)
+            if decision is None:
+                return self._wait(
+                    context,
+                    list(diagnostics.get("reasons", ["No adaptive strategy opinion selected."])),
+                    StrategyType.NONE,
+                    diagnostics=diagnostics,
+                    model_selection=model_selection,
+                )
+        elif self._ensemble_enabled():
             decision, diagnostics = self._ensemble_decision(context)
             if decision is None:
                 return self._wait(
@@ -138,6 +160,7 @@ class SignalEngine:
         risk_plan = self._risk_plan_for(context, decision, features, model_selection)
         if isinstance(risk_plan, TradeSetup):
             return risk_plan
+        risk_plan = self._apply_opinion_size_multiplier(risk_plan, diagnostics)
         if not self._is_risk_acceptable(risk_plan):
             return self._wait(
                 context,
@@ -180,6 +203,65 @@ class SignalEngine:
         """Return True when strategy ensemble mode is enabled."""
         ensemble = self._settings.signal.strategy_ensemble
         return bool(ensemble and ensemble.enabled)
+
+    def _adaptive_strategy_enabled(self) -> bool:
+        """Return True when Strategy Opinion Ensemble is enabled."""
+        return bool(self._settings.market_regime.adaptive_strategy_enabled)
+
+    def _adaptive_decision(
+        self,
+        context: SignalContext,
+    ) -> tuple[StrategyDecision | None, dict[str, object]]:
+        """Evaluate all strategy opinion agents and select the strongest opinion."""
+        opinions = [agent.evaluate(context) for agent in self._opinion_agents]
+        opinions.sort(key=lambda opinion: opinion.score, reverse=True)
+        diagnostics: dict[str, object] = {
+            "adaptive_strategy": True,
+            "strategy_opinions": [opinion_to_dict(opinion) for opinion in opinions],
+            "rejected_strategies": [
+                opinion_to_dict(opinion)
+                for opinion in opinions
+                if opinion.suggested_signal is SignalType.WAIT
+            ],
+            "reasons": [],
+        }
+        actionable = [
+            opinion
+            for opinion in opinions
+            if opinion.suggested_signal is not SignalType.WAIT and opinion.score >= 0.35
+        ]
+        if not actionable:
+            diagnostics["reasons"] = ["No strategy opinion produced an actionable setup."]
+            return None, diagnostics
+
+        top = actionable[0]
+        diagnostics["selected_strategy_opinion"] = opinion_to_dict(top)
+        diagnostics["selected_strategy"] = {
+            "strategy_type": top.strategy_type.value,
+            "signal": top.suggested_signal.value,
+            "score": top.score,
+            "confidence": top.confidence,
+            "reasons": top.reasons,
+            "failed_conditions": top.failed_conditions,
+        }
+        diagnostics["reasons"] = [
+            f"Selected {top.strategy_type.value} opinion with score {top.score:.4f}."
+        ]
+        return StrategyDecision(
+            signal=top.suggested_signal,
+            strategy=top.strategy_type,
+            model_probability=context.probability(top.suggested_signal),
+            trend_score=top.score,
+            indicator_score=top.score,
+            volume_score=top.score,
+            reasons=[
+                *top.reasons,
+                *[f"Warning: {warning}" for warning in top.warnings],
+            ],
+            score=top.score,
+            confidence=top.confidence,
+            failed_conditions=top.failed_conditions,
+        ), diagnostics
 
     def _ensemble_decision(
         self,
@@ -281,6 +363,33 @@ class SignalEngine:
     def _is_risk_acceptable(self, risk_plan: RiskPlan) -> bool:
         """Return True when risk/reward passes the configured gate."""
         return risk_plan.risk_reward >= self._settings.signal.min_risk_reward
+
+    def _apply_opinion_size_multiplier(
+        self,
+        risk_plan: RiskPlan,
+        diagnostics: dict[str, object] | None,
+    ) -> RiskPlan:
+        """Apply adaptive opinion size multiplier to the risk plan."""
+        if not diagnostics:
+            return risk_plan
+        opinion = diagnostics.get("selected_strategy_opinion")
+        if not isinstance(opinion, dict):
+            return risk_plan
+        try:
+            multiplier = float(opinion.get("suggested_size_multiplier", 1.0))
+        except (TypeError, ValueError):
+            return risk_plan
+        multiplier = max(0.0, min(multiplier, 1.0))
+        if multiplier >= 0.999:
+            return risk_plan
+        return replace(
+            risk_plan,
+            position_size=risk_plan.position_size * multiplier,
+            risk_notes=[
+                *risk_plan.risk_notes,
+                f"Adaptive strategy opinion size multiplier applied: {multiplier:.2f}.",
+            ],
+        )
 
     def _multi_timeframe_confirmation(
         self,
@@ -511,6 +620,8 @@ class SignalEngine:
             "strategy": {
                 "selected": strategy.value,
                 "selected_score": selected_strategy.get("score") if selected_strategy else None,
+                "selected_opinion": (diagnostics or {}).get("selected_strategy_opinion"),
+                "strategy_opinions": (diagnostics or {}).get("strategy_opinions", []),
                 "passed_conditions": list(passed_conditions),
                 "failed_conditions": list(failed_conditions),
                 "rejected_strategies": (diagnostics or {}).get("rejected_strategies", []),

@@ -903,7 +903,63 @@ Output:
         </p>
 
         <h2 id="strategies">9. Chiến lược giao dịch</h2>
-        <h3>9.1 Trend Following</h3>
+        <p>
+          Strategy layer có hai chế độ. Khi <code>adaptive_strategy.enabled=false</code>, hệ thống
+          dùng mapping cứng regime → strategy như trước. Khi bật adaptive strategy, mỗi strategy
+          chỉ đưa ra <code>StrategyOpinion</code>; <code>SignalEngine</code> chọn opinion mạnh nhất
+          và vẫn đi qua RiskManager/RiskGuard trước khi trả TradeSetup.
+        </p>
+
+        <h3>9.1 Strategy Opinion Ensemble</h3>
+        <pre>{
+  "strategy_type": "TREND_FOLLOWING",
+  "suggested_signal": "BUY",
+  "score": 0.74,
+  "confidence": 0.68,
+  "setup_grade": "B",
+  "reasons": ["Trend-following opinion favors BUY."],
+  "warnings": ["Price is slightly extended from EMA20."],
+  "passed_conditions": ["EMA alignment supports trend direction."],
+  "failed_conditions": [],
+  "suggested_size_multiplier": 0.7
+}</pre>
+
+        <pre>strategy_score =
+  regime_fit_score * 0.25
+  + model_probability * 0.25
+  + indicator_alignment * 0.20
+  + multi_timeframe_alignment * 0.15
+  + volume_quality * 0.10
+  + risk_reward_score * 0.05</pre>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Opinion Agent</th>
+              <th>Điểm chính</th>
+              <th>Warning chính</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>TrendFollowingOpinionAgent</code></td>
+              <td>Regime fit, EMA alignment, RSI quality, distance from EMA20, probability, MTF alignment, volume, R/R.</td>
+              <td>Giá hơi xa EMA20, higher timeframe alignment yếu.</td>
+            </tr>
+            <tr>
+              <td><code>BreakoutOpinionAgent</code></td>
+              <td>Rolling high/low break, volume, candle body, probability, MTF alignment.</td>
+              <td>Rejection wick lớn, body yếu, volume không xác nhận, ATR quá cao gây fakeout risk.</td>
+            </tr>
+            <tr>
+              <td><code>MeanReversionOpinionAgent</code></td>
+              <td>Sideway fit, RSI oversold/overbought, range edge, probability, MTF trend pressure.</td>
+              <td>ATR tăng nhanh, volume ratio cao, close sát range high/low, higher timeframe trend mạnh.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>9.2 Trend Following</h3>
         <table>
           <thead>
             <tr>
@@ -934,7 +990,7 @@ Output:
           </tbody>
         </table>
 
-        <h3>9.2 Breakout Confirmation</h3>
+        <h3>9.3 Breakout Confirmation</h3>
         <table>
           <thead>
             <tr>
@@ -963,7 +1019,7 @@ Output:
           </tbody>
         </table>
 
-        <h3>9.3 Mean Reversion</h3>
+        <h3>9.4 Mean Reversion</h3>
         <p>
           Mean Reversion chỉ chạy trong <code>SIDEWAY</code>. Xác suất threshold thấp hơn
           vì sideway thường ít momentum hơn trend/breakout.

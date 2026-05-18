@@ -52,6 +52,8 @@ export interface StructuredExplanation {
   strategy: {
     selected?: StrategyType;
     selected_score?: number | null;
+    selected_opinion?: Record<string, unknown> | null;
+    strategy_opinions?: Array<Record<string, unknown>>;
     passed_conditions?: string[];
     failed_conditions?: string[];
     rejected_strategies?: Array<Record<string, unknown>>;

@@ -28,6 +28,16 @@ class StrategyType(str, Enum):
     NONE = "NONE"
 
 
+class SetupGrade(str, Enum):
+    """Human-readable quality bucket for strategy opinions."""
+
+    A_PLUS = "A_PLUS"
+    A = "A"
+    B = "B"
+    C = "C"
+    D = "D"
+
+
 @dataclass(frozen=True)
 class SignalContext:
     """Input context for strategy and signal decisions."""
@@ -143,6 +153,22 @@ class StrategyEnsembleResult:
     rejected: list[StrategyScore] = field(default_factory=list)
     conflict: bool = False
     reasons: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class StrategyOpinion:
+    """Soft strategy opinion used by adaptive decision logic."""
+
+    strategy_type: StrategyType
+    suggested_signal: SignalType
+    score: float
+    confidence: float
+    setup_grade: SetupGrade
+    reasons: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    passed_conditions: list[str] = field(default_factory=list)
+    failed_conditions: list[str] = field(default_factory=list)
+    suggested_size_multiplier: float = 1.0
 
 
 @dataclass(frozen=True)
