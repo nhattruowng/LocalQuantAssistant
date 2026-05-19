@@ -22,10 +22,12 @@ Mọi tín hiệu từ hệ thống chỉ là gợi ý phân tích. Người dù
 - Price action, trend, momentum, volatility và volume features.
 - Market regime detection: `UPTREND`, `DOWNTREND`, `SIDEWAY`, `BREAKOUT_UP`, `BREAKOUT_DOWN`, `HIGH_VOLATILITY`, `LOW_VOLATILITY`, `UNKNOWN`.
 - Soft regime scoring và optional strategy ensemble để giảm phụ thuộc vào mapping cứng regime -> strategy.
+- Strategy Memory Feedback để adaptive agents biết strategy/regime/direction nào đang thắng/thua gần đây.
 - ML-based `BUY` / `SELL` / `WAIT` classification bằng XGBoost nếu có, fallback RandomForest.
 - TP/SL first-touch labeling để tránh label quá đơn giản.
 - Chronological train/validation/test split, hỗ trợ walk-forward validation và purged CV, không shuffle time-series.
-- Risk-aware setup recommendation với entry, stop loss, take profit, risk/reward và position size.
+- Risk-aware setup recommendation với entry, stop loss, take profit, risk/reward, dynamic position sizing và safety filters.
+- Mean Reversion Danger Filter, Breakout Fakeout Defense, RiskGuard và CircuitBreaker để giảm overtrading/setup nguy hiểm.
 - Explainable AI cho tín hiệu bằng SHAP nếu khả dụng, fallback bằng model feature importance.
 - Strategy layer: Trend Following, Breakout Confirmation, Mean Reversion.
 - Backtesting engine có fee, slippage, cooldown, drawdown, winrate và profit factor.
@@ -43,8 +45,11 @@ Market Data
     -> Feature Engineering
     -> Market Regime Detector
     -> ML Prediction
-    -> Strategy + Signal Engine
+    -> Strategy Opinion Ensemble
+    -> Strategy Memory Feedback
     -> Risk Manager
+    -> Safety Filters / RiskGuard
+    -> Signal Engine
     -> Backtest / Dashboard UI
 ```
 
@@ -201,9 +206,36 @@ Ví dụ cấu hình risk:
 risk:
   account_balance: 10000
   risk_per_trade_pct: 0.01
+  dynamic_sizing_enabled: true
+  max_risk_per_trade_pct: 1.0
+  min_risk_reward: 2.0
   stop_loss_atr_multiplier: 1.5
   take_profit_1_atr_multiplier: 2.0
   take_profit_2_atr_multiplier: 3.0
+```
+
+Ví dụ cấu hình adaptive strategy memory và safety filters:
+
+```yaml
+adaptive_strategy:
+  enabled: true
+  base_threshold: 0.65
+  min_opinion_score: 0.55
+  conflict_margin: 0.12
+  memory_lookback_trades: 30
+  memory_lookback_bars: 200
+  memory_min_trades_required: 10
+  memory_max_score_penalty: 0.20
+  memory_max_size_penalty: 0.50
+  memory_block_after_consecutive_losses: true
+
+safety_filters:
+  mean_reversion_danger_enabled: true
+  breakout_fakeout_defense_enabled: true
+  extreme_volatility_block: true
+  higher_timeframe_conflict_block: true
+  mean_reversion_danger_threshold: 0.70
+  breakout_fakeout_threshold: 0.55
 ```
 
 Ví dụ cấu hình Telegram alert:
@@ -459,6 +491,12 @@ GET  /api/model/registry/BTC_USDT/15m
 POST /api/model/promote
 POST /api/model/archive
 POST /api/model/train
+GET  /api/risk/status
+GET  /api/paper/analytics
+GET  /api/paper/drawdown
+GET  /api/paper/regime-performance
+GET  /api/strategy-memory
+GET  /api/strategy-memory/{symbol}/{timeframe}
 ```
 
 Example signal request:
@@ -509,15 +547,26 @@ Strategy selection mặc định vẫn dùng mapping cũ để backward-compatib
 Có thể bật strategy ensemble trong `settings.yaml`:
 
 ```yaml
-signal:
-  strategy_ensemble:
-    enabled: true
-    min_strategy_score: 0.55
-    conflict_margin: 0.10
-    low_regime_confidence_threshold: 0.55
+adaptive_strategy:
+  enabled: true
+  base_threshold: 0.65
+  min_opinion_score: 0.55
+  conflict_margin: 0.12
 ```
 
-Khi ensemble được bật, SignalEngine đánh giá nhiều strategy candidate, chọn strategy có score cao nhất nếu vượt threshold, trả `WAIT` nếu BUY/SELL conflict với margin thấp, và giảm confidence nếu regime confidence thấp hoặc có transition warning.
+Khi adaptive strategy được bật, SignalEngine gọi nhiều `StrategyOpinionAgent`, chọn opinion tốt nhất bằng `AdaptiveDecisionEngine`, trả `WAIT` nếu BUY/SELL conflict với margin thấp, tăng threshold khi regime mập mờ/volatility cao, và áp dụng Strategy Memory Feedback nếu một strategy đang thua gần đây.
+
+Dynamic sizing:
+
+```text
+final_position_size =
+  base_position_size
+  * setup_quality_multiplier
+  * regime_confidence_multiplier
+  * volatility_multiplier
+  * memory_performance_multiplier
+  * drawdown_multiplier
+```
 
 ```json
 {
@@ -547,7 +596,19 @@ Khi ensemble được bật, SignalEngine đánh giá nhiều strategy candidate
   "take_profit_1": 66600.0,
   "take_profit_2": 67400.0,
   "risk_reward": 2.0,
+  "base_position_size": 0.024,
+  "final_position_size": 0.012,
   "position_size": 0.012,
+  "size_multiplier": 0.5,
+  "risk_adjustments": [
+    {"name": "setup_quality_multiplier", "multiplier": 0.5},
+    {"name": "regime_confidence_multiplier", "multiplier": 1.0},
+    {"name": "volatility_multiplier", "multiplier": 1.0},
+    {"name": "memory_performance_multiplier", "multiplier": 1.0},
+    {"name": "drawdown_multiplier", "multiplier": 1.0}
+  ],
+  "safety_filters": [],
+  "blocked_by_risk_guard": false,
   "reasons": [
     "Model BUY probability passed threshold.",
     "Market regime supports trend-following setup.",
@@ -556,6 +617,15 @@ Khi ensemble được bật, SignalEngine đánh giá nhiều strategy candidate
   "risk_notes": []
 }
 ```
+
+`explanation_v2` bổ sung các trường để UI/API giải thích rõ vì sao giảm size hoặc block setup:
+
+- `strategy.memory_adjustments`
+- `risk.risk_adjustments`
+- `risk.safety_filters`
+- `risk.mean_reversion_danger_score`
+- `risk.breakout_fakeout_score`
+- `risk.final_risk_decision`
 
 ## Backtest Metrics
 
@@ -612,10 +682,12 @@ Streamlit dashboard gồm các tab:
 
 - `Market`: candlestick chart, EMA, volume, RSI, market regime.
 - `Signal`: signal card, confidence, entry, stop loss, take profit, risk/reward, position size, reasons, và top positive/negative model factors khi có model explainability.
+- `Signal`: hiển thị thêm adaptive threshold, setup quality, memory adjustments, safety filters và final risk decision khi có `explanation_v2`.
 - `Backtest`: metrics cards, equity curve, trade history.
 - `Model`: model type, trained time, feature count, calibration metrics, feature importance và explainability notes.
 - `History`: lịch sử signal local với filter.
 - `Paper Trading`: balance, equity, open positions, closed trades và equity curve mô phỏng.
+- `Paper Trading`: analytics theo regime/strategy, drawdown curve và dữ liệu strategy memory dùng cho adaptive decisions.
 
 Empty states được xử lý rõ ràng:
 
@@ -666,6 +738,7 @@ Test coverage tập trung vào:
 - Market regime detection.
 - TP/SL first-touch labeling.
 - Risk manager.
+- Dynamic position sizing, safety filters, RiskGuard và Strategy Memory Feedback.
 - Signal engine.
 - Backtester TP/SL, fee, slippage, drawdown, winrate và no-overlap position.
 
@@ -732,6 +805,21 @@ Dashboard tab `Paper Trading` hiển thị:
 - Closed trades.
 - Paper equity curve.
 
+Sau khi một paper trade đóng, hệ thống cập nhật Strategy Memory snapshot trong local JSON store.
+Memory được nhóm theo `symbol`, `timeframe`, `strategy_type`, `regime`, `direction` và gồm:
+
+- `recent_trades_count`
+- `recent_winrate`
+- `recent_profit_factor`
+- `recent_expectancy`
+- `recent_drawdown`
+- `consecutive_losses`
+- `average_r_multiple`
+- `fakeout_count`
+- `timeout_count`
+
+AdaptiveDecisionEngine dùng memory này để giảm strategy score, tăng threshold, giảm size hoặc block strategy khi hiệu suất gần đây xấu. Memory chỉ can thiệp sau `adaptive_strategy.memory_min_trades_required` để tránh overfit quá nhanh.
+
 Paper mode chỉ phục vụ kiểm thử workflow realtime và quản trị rủi ro giả lập. Nó không đặt lệnh thật và không nên được hiểu là paper broker đầy đủ.
 
 Benchmark synthetic:
@@ -742,10 +830,9 @@ python scripts/benchmark_pipeline.py --rows 5000
 
 ## Roadmap
 
-- Multi-timeframe analysis.
 - Advanced SHAP visualizations.
 - Telegram alert templates and richer notification channels.
-- Paper trading controls and reset/account management.
+- Paper trading controls, reset/account management and richer strategy memory analytics.
 - Portfolio mode.
 - More data sources: Yahoo Finance, MT5, CSV.
 - PostgreSQL support.
@@ -754,8 +841,9 @@ python scripts/benchmark_pipeline.py --rows 5000
 ## CV Bullets
 
 - Built a local-first quantitative research assistant in Python that collects OHLCV data, engineers technical indicators, detects market regimes, trains ML classifiers, and generates risk-aware BUY/SELL/WAIT trade setup recommendations.
-- Designed a modular architecture with SQLite persistence, pandas feature pipelines, ML training, backtesting, Streamlit dashboard, Docker deployment, and pytest coverage for core trading logic.
+- Designed a modular architecture with SQLite persistence, pandas feature pipelines, ML training, strategy memory feedback, backtesting, Streamlit dashboard, Docker deployment, and pytest coverage for core trading logic.
 - Implemented conservative backtesting with fees, slippage, cooldown, TP/SL simulation, drawdown metrics, and safeguards to avoid automated real-money trading.
+- Added adaptive risk controls with dynamic position sizing, mean-reversion danger filters, breakout fakeout defense, RiskGuard, and circuit breaker logic.
 
 ## License
 

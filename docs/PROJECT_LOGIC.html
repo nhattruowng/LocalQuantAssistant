@@ -352,10 +352,12 @@
             risk management, backtesting, paper trading và các interface của dự án.
           </p>
           <div class="meta">
-            <span class="tag">Phiên bản tài liệu: 2026-05-18</span>
+            <span class="tag">Phiên bản tài liệu: 2026-05-19</span>
             <span class="tag">Mục tiêu: Research & Decision Support</span>
             <span class="tag">Không auto trade tiền thật</span>
             <span class="tag">Multi-timeframe confirmation</span>
+            <span class="tag">Strategy memory feedback</span>
+            <span class="tag">Adaptive risk controls</span>
           </div>
         </section>
 
@@ -390,7 +392,11 @@ Strategy Layer
    ↓
 Multi-Timeframe Confirmation
    ↓
+Strategy Memory Feedback
+   ↓
 Risk Manager
+   ↓
+Safety Filters / RiskGuard
    ↓
 Signal Engine
    ↓
@@ -462,18 +468,18 @@ Structured Explanation / Notification / Backtest / Paper Trading / UI / API</pre
             </tr>
             <tr>
               <td><code>strategy</code></td>
-              <td>Rule layer chọn BUY/SELL/WAIT theo market regime và indicator.</td>
-              <td><code>trend_following.py</code>, <code>breakout.py</code>, <code>mean_reversion.py</code></td>
+              <td>Rule layer, strategy opinion agents và performance memory cho adaptive decision.</td>
+              <td><code>trend_following.py</code>, <code>breakout.py</code>, <code>mean_reversion.py</code>, <code>opinion_agents.py</code>, <code>memory.py</code></td>
             </tr>
             <tr>
               <td><code>risk</code></td>
-              <td>Tính entry, stop loss, take profit, R/R, position size.</td>
-              <td><code>risk_manager.py</code></td>
+              <td>Tính entry, SL/TP, R/R, dynamic sizing, safety filters và circuit breaker.</td>
+              <td><code>risk_manager.py</code>, <code>safety_filters.py</code>, <code>risk_guard.py</code>, <code>circuit_breaker.py</code></td>
             </tr>
             <tr>
               <td><code>signals</code></td>
-              <td>Tổng hợp model probability, regime, strategy, multi-timeframe confirmation và risk thành TradeSetup.</td>
-              <td><code>signal_engine.py</code>, <code>models.py</code></td>
+              <td>Tổng hợp model probability, regime, strategy opinions, memory, safety filters và risk thành TradeSetup.</td>
+              <td><code>signal_engine.py</code>, <code>adaptive_decision_engine.py</code>, <code>models.py</code></td>
             </tr>
             <tr>
               <td><code>backtest</code></td>
@@ -487,8 +493,8 @@ Structured Explanation / Notification / Backtest / Paper Trading / UI / API</pre
             </tr>
             <tr>
               <td><code>api</code></td>
-              <td>FastAPI REST API cho React frontend.</td>
-              <td><code>main.py</code>, <code>routes/*</code>, <code>services/localquant_service.py</code></td>
+              <td>FastAPI REST API cho React frontend, model registry, risk status và strategy memory.</td>
+              <td><code>main.py</code>, <code>routes/*</code>, <code>routes/strategy_memory.py</code>, <code>services/localquant_service.py</code></td>
             </tr>
             <tr>
               <td><code>app</code></td>
@@ -810,12 +816,14 @@ Process:
   2. Chọn strategy bằng mapping cũ hoặc ensemble nếu bật
   3. Strategy đánh giá rule và model probability
   4. RiskManager tính entry / SL / TP / R:R / size
-  5. Gate risk_reward >= min_risk_reward
-  6. Xác nhận higher timeframe nếu multi_timeframe bật
-  7. Giảm confidence hoặc WAIT nếu timeframe conflict mạnh
-  8. RiskGuard / CircuitBreaker kiểm tra overtrading
-  9. Tạo explanation_v2 có cấu trúc
-  10. Trả TradeSetup
+  5. Strategy Memory điều chỉnh score / threshold / size nếu có lịch sử gần đây
+  6. SafetyFilterEngine kiểm tra mean reversion danger và breakout fakeout
+  7. Gate risk_reward >= min_risk_reward
+  8. Xác nhận higher timeframe nếu multi_timeframe bật
+  9. Giảm confidence hoặc WAIT nếu timeframe conflict mạnh
+  10. RiskGuard / CircuitBreaker kiểm tra overtrading và setup nguy hiểm
+  11. Tạo explanation_v2 có cấu trúc
+  12. Trả TradeSetup
 
 Output:
   BUY / SELL / WAIT TradeSetup + explanation_v2</pre>
@@ -899,7 +907,8 @@ Output:
         <p>
           <code>risk_reward_score</code> được cap trong khoảng 0..1 bằng cách so sánh R/R thực tế
           với <code>signal.min_risk_reward</code>. Sau đó confidence có thể bị giảm thêm bởi
-          low regime confidence, transition warning hoặc multi-timeframe conflict.
+          low regime confidence, transition warning, multi-timeframe conflict hoặc memory/safety
+          warning trong adaptive pipeline.
         </p>
 
         <h2 id="strategies">9. Chiến lược giao dịch</h2>
@@ -947,7 +956,13 @@ Output:
   conflict_margin: 0.12
   high_uncertainty_threshold: 0.45
   require_calibrated_probability: false
-  allow_grade_c_signal: false</pre>
+  allow_grade_c_signal: false
+  memory_lookback_trades: 30
+  memory_lookback_bars: 200
+  memory_min_trades_required: 10
+  memory_max_score_penalty: 0.20
+  memory_max_size_penalty: 0.50
+  memory_block_after_consecutive_losses: true</pre>
 
         <table>
           <thead>
@@ -990,10 +1005,60 @@ Output:
   "decision_reasons": ["Selected TREND_FOLLOWING with score 0.7400."],
   "decision_warnings": [],
   "size_multiplier": 0.8,
+  "memory_adjustments": [],
   "conflict_result": {
     "has_conflict": false,
     "score_gap": 0.18
   }
+}</pre>
+
+        <h3>9.3 Strategy Memory Feedback</h3>
+        <p>
+          Strategy memory là lớp phản hồi từ paper trading/backtest gần đây. Mục tiêu là để
+          agent biết strategy nào đang yếu trong một regime/direction cụ thể, nhưng không overfit
+          quá nhanh vào vài lệnh nhiễu. Memory được lưu theo key:
+        </p>
+        <pre>symbol | timeframe | strategy_type | regime | direction</pre>
+        <table>
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th>Ý nghĩa</th>
+              <th>Tác động</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>recent_winrate</code>, <code>recent_profit_factor</code>, <code>recent_expectancy</code></td>
+              <td>Hiệu quả gần đây trong lookback window.</td>
+              <td>Profit factor yếu làm tăng adaptive threshold.</td>
+            </tr>
+            <tr>
+              <td><code>consecutive_losses</code></td>
+              <td>Số lệnh thua liên tiếp của cùng strategy/regime/direction.</td>
+              <td>Từ 2 lệnh thua: giảm score; từ 3 lệnh thua: có thể block strategy.</td>
+            </tr>
+            <tr>
+              <td><code>recent_drawdown</code>, <code>average_r_multiple</code></td>
+              <td>Độ đau của chuỗi trade gần đây và chất lượng R multiple.</td>
+              <td>Drawdown cao làm giảm position size.</td>
+            </tr>
+            <tr>
+              <td><code>fakeout_count</code>, <code>timeout_count</code></td>
+              <td>Số breakout thất bại hoặc lệnh hết thời gian.</td>
+              <td>Fakeout cao khiến breakout cần xác nhận mạnh hơn.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <pre>{
+  "strategy_type": "BREAKOUT_CONFIRMATION",
+  "direction": "BUY",
+  "blocked": false,
+  "score_penalty": 0.06,
+  "threshold_adjustment": 0.03,
+  "size_multiplier": 0.75,
+  "warnings": ["Breakout memory shows repeated fakeouts; require stronger confirmation."]
 }</pre>
 
         <table>
@@ -1023,7 +1088,7 @@ Output:
           </tbody>
         </table>
 
-        <h3>9.3 Trend Following</h3>
+        <h3>9.4 Trend Following</h3>
         <table>
           <thead>
             <tr>
@@ -1054,7 +1119,7 @@ Output:
           </tbody>
         </table>
 
-        <h3>9.4 Breakout Confirmation</h3>
+        <h3>9.5 Breakout Confirmation</h3>
         <table>
           <thead>
             <tr>
@@ -1083,7 +1148,7 @@ Output:
           </tbody>
         </table>
 
-        <h3>9.5 Mean Reversion</h3>
+        <h3>9.6 Mean Reversion</h3>
         <p>
           Mean Reversion chỉ chạy trong <code>SIDEWAY</code>. Xác suất threshold thấp hơn
           vì sideway thường ít momentum hơn trend/breakout.
@@ -1114,6 +1179,8 @@ Output:
         <p>
           RiskManager tách riêng khỏi strategy để mọi setup đều có risk plan nhất quán.
           Nếu không có <code>close</code> hoặc <code>atr_14</code> hợp lệ, setup bị chuyển thành WAIT.
+          Từ phiên bản mới, position size không còn cố định theo một mức risk duy nhất; nó được
+          điều chỉnh theo chất lượng setup, regime confidence, volatility, strategy memory và drawdown.
         </p>
 
         <pre>BUY:
@@ -1128,16 +1195,107 @@ SELL:
   take_profit_1 = entry - atr_14 * 2.0
   take_profit_2 = entry - atr_14 * 3.0
 
-Position sizing:
-  risk_amount = account_balance * risk_per_trade_pct
-  position_size = risk_amount / abs(entry - stop_loss)
+Base position sizing:
+  risk_amount = account_balance * min(risk_per_trade_pct, max_risk_per_trade_pct)
+  base_position_size = risk_amount / abs(entry - stop_loss)
 
 Risk reward:
   risk_reward = abs(take_profit_2 - entry) / abs(entry - stop_loss)</pre>
 
+        <h3>10.1 Dynamic Position Sizing</h3>
+        <pre>final_position_size =
+  base_position_size
+  * setup_quality_multiplier
+  * regime_confidence_multiplier
+  * volatility_multiplier
+  * memory_performance_multiplier
+  * drawdown_multiplier</pre>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Multiplier</th>
+              <th>Rule</th>
+              <th>Hành vi</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>setup_quality_multiplier</code></td>
+              <td>A_PLUS=1.0, A=0.8, B=0.5, C=0.25, D=0.0</td>
+              <td>Setup yếu dùng size nhỏ hơn; D không nên trade.</td>
+            </tr>
+            <tr>
+              <td><code>regime_confidence_multiplier</code></td>
+              <td>&gt;=0.75: 1.0, 0.60-0.75: 0.75, 0.50-0.60: 0.5, &lt;0.50: 0.0</td>
+              <td>Regime mập mờ thì giảm size hoặc WAIT.</td>
+            </tr>
+            <tr>
+              <td><code>volatility_multiplier</code></td>
+              <td>NORMAL=1.0, LOW=0.8, HIGH=0.5, EXTREME=0.0</td>
+              <td>Không khuyến khích trade khi volatility quá cực đoan.</td>
+            </tr>
+            <tr>
+              <td><code>memory_performance_multiplier</code></td>
+              <td>Lấy từ Strategy Memory adjustment.</td>
+              <td>Strategy đang drawdown hoặc bị block sẽ giảm size mạnh.</td>
+            </tr>
+            <tr>
+              <td><code>drawdown_multiplier</code></td>
+              <td>Dựa trên drawdown paper account hiện tại.</td>
+              <td>Drawdown cao thì tự động co rủi ro.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>10.2 Safety Filters</h3>
+        <p>
+          <code>SafetyFilterEngine</code> chạy trước khi trả BUY/SELL. Nó không thay thế strategy
+          logic, mà là lớp bảo vệ cuối cho các setup dễ nhiễu như Mean Reversion và Breakout.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Filter</th>
+              <th>Inputs chính</th>
+              <th>Quyết định</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>Mean Reversion Danger</code></td>
+              <td>ATR expansion, volume ratio, close sát range edge, breakout_score, HTF trend, range_test_count.</td>
+              <td>Danger cao thì block Mean Reversion và chuyển WAIT.</td>
+            </tr>
+            <tr>
+              <td><code>Breakout Fakeout Defense</code></td>
+              <td>Candle body, close location, volume expansion, ATR expansion, rejection wick, HTF alignment, retest.</td>
+              <td>Fakeout score cao thì block breakout hoặc thêm warning.</td>
+            </tr>
+            <tr>
+              <td><code>Extreme Volatility</code></td>
+              <td><code>volatility_level == EXTREME</code></td>
+              <td>Block để tránh trade trong regime quá hỗn loạn.</td>
+            </tr>
+            <tr>
+              <td><code>Higher Timeframe Conflict</code></td>
+              <td>Higher timeframe regime đối nghịch mạnh với signal.</td>
+              <td>Block nếu safety config yêu cầu.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <pre>safety_filters:
+  mean_reversion_danger_enabled: true
+  breakout_fakeout_defense_enabled: true
+  extreme_volatility_block: true
+  higher_timeframe_conflict_block: true
+  mean_reversion_danger_threshold: 0.70
+  breakout_fakeout_threshold: 0.55</pre>
+
         <div class="note">
           Gate cuối: SignalEngine không cho BUY/SELL nếu
-          <code>risk_reward &lt; signal.min_risk_reward</code>. Mặc định min R/R là <code>2.0</code>.
+          <code>risk_reward &lt; max(signal.min_risk_reward, risk.min_risk_reward)</code>. Mặc định min R/R là <code>2.0</code>.
         </div>
 
         <h2 id="orchestration">11. Agent-based Orchestration</h2>
@@ -1328,7 +1486,7 @@ Kiểm tra TP/SL
         <p>
           ExplainabilityService giải thích model output bằng SHAP nếu khả dụng. Nếu không có SHAP
           hoặc lỗi runtime, service fallback sang feature importance của model.
-          Từ phiên bản 2026-05-18, mỗi TradeSetup còn có <code>explanation_v2</code> dạng
+          Từ phiên bản 2026-05-19, mỗi TradeSetup còn có <code>explanation_v2</code> dạng
           structured explanation để UI/API không phải parse text tự do.
         </p>
 
@@ -1504,6 +1662,14 @@ Kiểm tra TP/SL
               <td><code>GET /api/signals/history</code></td>
               <td>Lấy lịch sử signal.</td>
             </tr>
+            <tr>
+              <td><code>GET /api/strategy-memory</code></td>
+              <td>Lấy toàn bộ strategy memory snapshots.</td>
+            </tr>
+            <tr>
+              <td><code>GET /api/strategy-memory/{symbol}/{timeframe}</code></td>
+              <td>Lọc strategy memory theo symbol/timeframe.</td>
+            </tr>
           </tbody>
         </table>
 
@@ -1562,8 +1728,18 @@ Kiểm tra TP/SL
             </tr>
             <tr>
               <td><code>risk</code></td>
-              <td>account balance, risk percent, ATR multipliers</td>
-              <td>Risk plan và position sizing.</td>
+              <td>account balance, risk percent, ATR multipliers, dynamic sizing, max risk, min R/R</td>
+              <td>Risk plan, base size và adaptive final size.</td>
+            </tr>
+            <tr>
+              <td><code>safety_filters</code></td>
+              <td>mean reversion danger, breakout fakeout defense, extreme volatility, HTF conflict</td>
+              <td>Block hoặc cảnh báo setup nguy hiểm trước khi trả BUY/SELL.</td>
+            </tr>
+            <tr>
+              <td><code>adaptive_strategy</code></td>
+              <td>base threshold, conflict margin, memory lookback, memory penalties</td>
+              <td>Adaptive decision và Strategy Memory Feedback.</td>
             </tr>
             <tr>
               <td><code>labeling</code></td>
@@ -1661,7 +1837,7 @@ make docker-down</pre>
         <pre>{
   "symbol": "BTC/USDT",
   "timeframe": "15m",
-  "timestamp": "2026-05-18T10:00:00",
+  "timestamp": "2026-05-19T10:00:00",
   "market_regime": "UPTREND",
   "signal": "BUY",
   "strategy": "TREND_FOLLOWING",
@@ -1671,7 +1847,19 @@ make docker-down</pre>
   "take_profit_1": 66600.0,
   "take_profit_2": 67400.0,
   "risk_reward": 2.0,
+  "base_position_size": 0.024,
+  "final_position_size": 0.012,
   "position_size": 0.012,
+  "size_multiplier": 0.5,
+  "risk_adjustments": [
+    {"name": "setup_quality_multiplier", "multiplier": 0.5},
+    {"name": "regime_confidence_multiplier", "multiplier": 1.0},
+    {"name": "volatility_multiplier", "multiplier": 1.0},
+    {"name": "memory_performance_multiplier", "multiplier": 1.0},
+    {"name": "drawdown_multiplier", "multiplier": 1.0}
+  ],
+  "safety_filters": [],
+  "blocked_by_risk_guard": false,
   "reasons": [
     "Regime is UPTREND.",
     "Model BUY probability passed threshold.",
@@ -1706,6 +1894,7 @@ make docker-down</pre>
       "setup_quality": "B",
       "conflict_result": {"has_conflict": false},
       "decision_warnings": [],
+      "memory_adjustments": [],
       "passed_conditions": [
         "Model BUY probability passed threshold.",
         "EMA20 is above EMA50 and close is near/above EMA20."
@@ -1714,7 +1903,20 @@ make docker-down</pre>
     },
     "risk": {
       "risk_reward": 2.0,
+      "base_position_size": 0.024,
+      "final_position_size": 0.012,
       "position_size": 0.012,
+      "size_multiplier": 0.5,
+      "risk_adjustments": [
+        {"name": "setup_quality_multiplier", "multiplier": 0.5},
+        {"name": "regime_confidence_multiplier", "multiplier": 1.0},
+        {"name": "volatility_multiplier", "multiplier": 1.0}
+      ],
+      "safety_filters": [],
+      "mean_reversion_danger_score": null,
+      "breakout_fakeout_score": null,
+      "blocked_by_risk_guard": false,
+      "final_risk_decision": "APPROVED",
       "risk_notes": []
     },
     "model": {
