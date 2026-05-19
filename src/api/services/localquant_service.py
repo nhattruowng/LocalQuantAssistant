@@ -24,6 +24,7 @@ from ml.model_registry import ModelRegistry
 from ml.model_trainer import ModelTrainer
 from paper.paper_trading_engine import PaperTradingEngine
 from risk.risk_guard import RiskGuard, RiskGuardContext
+from strategy.memory import StrategyMemoryStore
 
 
 class LocalQuantApiService:
@@ -200,6 +201,30 @@ class LocalQuantApiService:
             "realized_pnl_by_regime": analytics.get("realized_pnl_by_regime", {}),
             "realized_pnl_by_strategy": analytics.get("realized_pnl_by_strategy", {}),
         }
+
+    def strategy_memory(
+        self,
+        symbol: str | None = None,
+        timeframe: str | None = None,
+    ) -> dict[str, object]:
+        """Return strategy memory snapshots, optionally filtered by symbol/timeframe."""
+        memory = StrategyMemoryStore(
+            self._settings.features.output_dir / "strategy_memory.json"
+        ).load()
+        snapshots = [
+            snapshot.to_dict()
+            for snapshot in memory.snapshots.values()
+            if (symbol is None or snapshot.symbol == symbol)
+            and (timeframe is None or snapshot.timeframe == timeframe)
+        ]
+        return _json_safe(
+            {
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "total": len(snapshots),
+                "snapshots": snapshots,
+            }
+        )
 
     def model_info(self, symbol: str | None = None, timeframe: str | None = None) -> dict[str, object] | None:
         """Return latest model metadata."""

@@ -112,6 +112,21 @@ class RiskSettings:
     stop_loss_atr_multiplier: float = 1.5
     take_profit_1_atr_multiplier: float = 2.0
     take_profit_2_atr_multiplier: float = 3.0
+    dynamic_sizing_enabled: bool = True
+    max_risk_per_trade_pct: float = 1.0
+    min_risk_reward: float = 2.0
+
+
+@dataclass(frozen=True)
+class SafetyFilterSettings:
+    """Safety filters for fragile setup types."""
+
+    mean_reversion_danger_enabled: bool = True
+    breakout_fakeout_defense_enabled: bool = True
+    extreme_volatility_block: bool = True
+    higher_timeframe_conflict_block: bool = True
+    mean_reversion_danger_threshold: float = 0.70
+    breakout_fakeout_threshold: float = 0.55
 
 
 @dataclass(frozen=True)
@@ -162,6 +177,12 @@ class AdaptiveStrategySettings:
     high_uncertainty_threshold: float = 0.45
     require_calibrated_probability: bool = False
     allow_grade_c_signal: bool = False
+    memory_lookback_trades: int = 30
+    memory_lookback_bars: int = 200
+    memory_min_trades_required: int = 10
+    memory_max_score_penalty: float = 0.20
+    memory_max_size_penalty: float = 0.50
+    memory_block_after_consecutive_losses: bool = True
 
 
 @dataclass(frozen=True)
@@ -320,6 +341,7 @@ class Settings:
     adaptive_strategy: AdaptiveStrategySettings
     model: ModelSettings
     risk: RiskSettings
+    safety_filters: SafetyFilterSettings
     risk_guard: RiskGuardSettings
     signal: SignalSettings
     labeling: LabelingSettings

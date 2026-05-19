@@ -44,7 +44,11 @@ class RiskManager:
             take_profit_2 = entry - take_profit_2_distance
 
         per_unit_risk = abs(entry - stop_loss)
-        risk_amount = self._settings.account_balance * self._settings.risk_per_trade_pct
+        risk_pct = min(
+            self._settings.risk_per_trade_pct,
+            _pct_limit(self._settings.max_risk_per_trade_pct),
+        )
+        risk_amount = self._settings.account_balance * risk_pct
         position_size = risk_amount / per_unit_risk
         risk_reward = abs(take_profit_2 - entry) / per_unit_risk
 
@@ -59,4 +63,12 @@ class RiskManager:
             risk_reward=risk_reward,
             position_size=position_size,
             risk_notes=notes,
+            base_position_size=position_size,
+            final_position_size=position_size,
+            size_multiplier=1.0,
         )
+
+
+def _pct_limit(value: float) -> float:
+    """Normalize percent config values that may be expressed as 1 or 0.01."""
+    return value / 100.0 if value > 0.25 else value

@@ -12,6 +12,7 @@ from signals.models import (
     StrategyOpinion,
     StrategyType,
 )
+from strategy.memory import MemoryAdjustment, StrategyPerformanceMemory
 
 
 class AdaptiveDecisionEngine:
@@ -24,9 +25,23 @@ class AdaptiveDecisionEngine:
         self,
         opinions: list[StrategyOpinion],
         threshold_context: AdaptiveThresholdContext,
+        strategy_memory: StrategyPerformanceMemory | None = None,
     ) -> AdaptiveDecision:
         """Return the final adaptive decision."""
         threshold, threshold_reasons = self._adaptive_threshold(threshold_context)
+        opinions, memory_adjustments = self._apply_memory(
+            opinions,
+            threshold_context,
+            strategy_memory,
+        )
+        memory_threshold_adjustment = sum(
+            adjustment.threshold_adjustment for adjustment in memory_adjustments
+        )
+        if memory_threshold_adjustment > 0:
+            threshold = round(min(0.95, threshold + memory_threshold_adjustment), 4)
+            threshold_reasons.append(
+                f"Strategy memory increased threshold by {memory_threshold_adjustment:.3f}."
+            )
         ordered = sorted(opinions, key=lambda opinion: opinion.score, reverse=True)
         actionable = [
             opinion
@@ -53,6 +68,7 @@ class AdaptiveDecisionEngine:
                 warnings=[],
                 conflict=conflict,
                 why_wait="No actionable strategy opinion.",
+                memory_adjustments=memory_adjustments,
             )
 
         top = actionable[0]
@@ -75,6 +91,7 @@ class AdaptiveDecisionEngine:
                 warnings=warnings,
                 conflict=conflict,
                 why_wait="BUY/SELL opinions conflict with a small score gap.",
+                memory_adjustments=memory_adjustments,
             )
         if top.score < threshold:
             return self._wait(
@@ -88,6 +105,7 @@ class AdaptiveDecisionEngine:
                 warnings=warnings,
                 conflict=conflict,
                 why_wait="Selected opinion score is below adaptive threshold.",
+                memory_adjustments=memory_adjustments,
             )
         if quality is SetupQualityGrade.D:
             return self._wait(
@@ -101,6 +119,7 @@ class AdaptiveDecisionEngine:
                 warnings=warnings,
                 conflict=conflict,
                 why_wait="Setup quality is D.",
+                memory_adjustments=memory_adjustments,
             )
         if quality is SetupQualityGrade.C and not self._settings.allow_grade_c_signal:
             return self._wait(
@@ -114,6 +133,7 @@ class AdaptiveDecisionEngine:
                 warnings=warnings,
                 conflict=conflict,
                 why_wait="Setup quality C is not allowed by config.",
+                memory_adjustments=memory_adjustments,
             )
 
         if quality is SetupQualityGrade.C:
@@ -131,6 +151,7 @@ class AdaptiveDecisionEngine:
             decision_warnings=warnings,
             size_multiplier=top.suggested_size_multiplier,
             conflict_result=conflict,
+            memory_adjustments=memory_adjustments,
         )
 
     def _adaptive_threshold(
@@ -195,6 +216,35 @@ class AdaptiveDecisionEngine:
             ),
         )
 
+    def _apply_memory(
+        self,
+        opinions: list[StrategyOpinion],
+        context: AdaptiveThresholdContext,
+        memory: StrategyPerformanceMemory | None,
+    ) -> tuple[list[StrategyOpinion], list[MemoryAdjustment]]:
+        """Apply bounded strategy memory adjustments to opinions."""
+        if (
+            memory is None
+            or context.symbol is None
+            or context.timeframe is None
+            or context.regime is None
+        ):
+            return opinions, []
+        adjusted: list[StrategyOpinion] = []
+        adjustments: list[MemoryAdjustment] = []
+        for opinion in opinions:
+            adjusted_opinion, adjustment = memory.apply_to_opinion(
+                symbol=context.symbol,
+                timeframe=context.timeframe,
+                regime=context.regime,
+                opinion=opinion,
+                settings=self._settings,
+            )
+            adjusted.append(adjusted_opinion)
+            if adjustment is not None:
+                adjustments.append(adjustment)
+        return adjusted, adjustments
+
     def _wait(
         self,
         selected: StrategyOpinion | None,
@@ -207,6 +257,7 @@ class AdaptiveDecisionEngine:
         warnings: list[str],
         conflict: DecisionConflictResult,
         why_wait: str,
+        memory_adjustments: list[MemoryAdjustment] | None = None,
     ) -> AdaptiveDecision:
         """Build a WAIT adaptive decision."""
         return AdaptiveDecision(
@@ -222,6 +273,7 @@ class AdaptiveDecisionEngine:
             decision_warnings=warnings,
             size_multiplier=0.0,
             conflict_result=conflict,
+            memory_adjustments=list(memory_adjustments or []),
         )
 
 
@@ -239,6 +291,10 @@ def adaptive_decision_to_dict(decision: AdaptiveDecision) -> dict[str, object]:
         "decision_reasons": decision.decision_reasons,
         "decision_warnings": decision.decision_warnings,
         "size_multiplier": decision.size_multiplier,
+        "memory_adjustments": [
+            adjustment.to_dict() if hasattr(adjustment, "to_dict") else adjustment
+            for adjustment in decision.memory_adjustments
+        ],
         "conflict_result": {
             "has_conflict": decision.conflict_result.has_conflict,
             "top_signal": decision.conflict_result.top_signal.value if decision.conflict_result.top_signal else None,

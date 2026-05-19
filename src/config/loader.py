@@ -32,6 +32,7 @@ from config.settings import (
     RegimeSpecificTrainingSettings,
     RiskGuardSettings,
     RiskSettings,
+    SafetyFilterSettings,
     Settings,
     SignalSettings,
     StrategyEnsembleSettings,
@@ -68,6 +69,9 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
         adaptive_strategy_config = {}
     model_config = raw_config.get("model", {})
     risk_config = raw_config.get("risk", {})
+    safety_filter_config = raw_config.get("safety_filters", {})
+    if not isinstance(safety_filter_config, dict):
+        safety_filter_config = {}
     risk_guard_config = raw_config.get("risk_guard", {})
     if not isinstance(risk_guard_config, dict):
         risk_guard_config = {}
@@ -201,6 +205,27 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
             allow_grade_c_signal=bool(
                 adaptive_strategy_config.get("allow_grade_c_signal", False)
             ),
+            memory_lookback_trades=int(
+                adaptive_strategy_config.get("memory_lookback_trades", 30)
+            ),
+            memory_lookback_bars=int(
+                adaptive_strategy_config.get("memory_lookback_bars", 200)
+            ),
+            memory_min_trades_required=int(
+                adaptive_strategy_config.get("memory_min_trades_required", 10)
+            ),
+            memory_max_score_penalty=float(
+                adaptive_strategy_config.get("memory_max_score_penalty", 0.20)
+            ),
+            memory_max_size_penalty=float(
+                adaptive_strategy_config.get("memory_max_size_penalty", 0.50)
+            ),
+            memory_block_after_consecutive_losses=bool(
+                adaptive_strategy_config.get(
+                    "memory_block_after_consecutive_losses",
+                    True,
+                )
+            ),
         ),
         model=ModelSettings(
             path=_resolve_path(model_path, base_dir) if model_path else None,
@@ -227,6 +252,33 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
             ),
             take_profit_2_atr_multiplier=float(
                 risk_config.get("take_profit_2_atr_multiplier", 3.0)
+            ),
+            dynamic_sizing_enabled=bool(
+                risk_config.get("dynamic_sizing_enabled", True)
+            ),
+            max_risk_per_trade_pct=float(
+                risk_config.get("max_risk_per_trade_pct", 1.0)
+            ),
+            min_risk_reward=float(risk_config.get("min_risk_reward", 2.0)),
+        ),
+        safety_filters=SafetyFilterSettings(
+            mean_reversion_danger_enabled=bool(
+                safety_filter_config.get("mean_reversion_danger_enabled", True)
+            ),
+            breakout_fakeout_defense_enabled=bool(
+                safety_filter_config.get("breakout_fakeout_defense_enabled", True)
+            ),
+            extreme_volatility_block=bool(
+                safety_filter_config.get("extreme_volatility_block", True)
+            ),
+            higher_timeframe_conflict_block=bool(
+                safety_filter_config.get("higher_timeframe_conflict_block", True)
+            ),
+            mean_reversion_danger_threshold=float(
+                safety_filter_config.get("mean_reversion_danger_threshold", 0.70)
+            ),
+            breakout_fakeout_threshold=float(
+                safety_filter_config.get("breakout_fakeout_threshold", 0.55)
             ),
         ),
         risk_guard=RiskGuardSettings(
@@ -644,6 +696,14 @@ def _validate_settings(settings: Settings) -> None:
         raise ValueError("Backtest volatility bucket thresholds must be increasing.")
     if settings.risk.account_balance < 0 or settings.risk.risk_per_trade_pct < 0:
         raise ValueError("Risk account balance and risk percent must be non-negative.")
+    if settings.risk.max_risk_per_trade_pct < 0:
+        raise ValueError("Risk max_risk_per_trade_pct must be non-negative.")
+    if settings.risk.min_risk_reward < 0:
+        raise ValueError("Risk min_risk_reward must be non-negative.")
+    if not 0 <= settings.safety_filters.mean_reversion_danger_threshold <= 1:
+        raise ValueError("Mean reversion danger threshold must be between 0 and 1.")
+    if not 0 <= settings.safety_filters.breakout_fakeout_threshold <= 1:
+        raise ValueError("Breakout fakeout threshold must be between 0 and 1.")
     adaptive = settings.adaptive_strategy
     if adaptive.base_threshold < 0 or adaptive.base_threshold > 1:
         raise ValueError("Adaptive strategy base_threshold must be between 0 and 1.")
@@ -653,6 +713,16 @@ def _validate_settings(settings: Settings) -> None:
         raise ValueError("Adaptive strategy conflict_margin must be non-negative.")
     if adaptive.high_uncertainty_threshold < 0 or adaptive.high_uncertainty_threshold > 1:
         raise ValueError("Adaptive strategy high_uncertainty_threshold must be between 0 and 1.")
+    if adaptive.memory_lookback_trades <= 0:
+        raise ValueError("Adaptive strategy memory_lookback_trades must be positive.")
+    if adaptive.memory_lookback_bars <= 0:
+        raise ValueError("Adaptive strategy memory_lookback_bars must be positive.")
+    if adaptive.memory_min_trades_required <= 0:
+        raise ValueError("Adaptive strategy memory_min_trades_required must be positive.")
+    if adaptive.memory_max_score_penalty < 0 or adaptive.memory_max_score_penalty > 1:
+        raise ValueError("Adaptive strategy memory_max_score_penalty must be between 0 and 1.")
+    if adaptive.memory_max_size_penalty < 0 or adaptive.memory_max_size_penalty > 1:
+        raise ValueError("Adaptive strategy memory_max_size_penalty must be between 0 and 1.")
     if settings.risk_guard.max_trades_per_day <= 0:
         raise ValueError("Risk guard max_trades_per_day must be positive.")
     if settings.risk_guard.max_consecutive_losses <= 0:

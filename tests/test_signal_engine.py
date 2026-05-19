@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import UTC, datetime
 
+import pytest
+
 from config.loader import load_settings
 from config.settings import Settings
 from regime.market_regime import MarketRegime
@@ -262,7 +264,7 @@ def test_strategy_ensemble_disabled_keeps_hard_mapping(settings: Settings):
     assert setup.strategy is StrategyType.TREND_FOLLOWING
 
 
-def test_multi_timeframe_buy_conflict_reduces_confidence(settings: Settings):
+def test_multi_timeframe_buy_conflict_blocks_when_safety_enabled(settings: Settings):
     engine = SignalEngine(_multi_timeframe_settings(settings, conflict_penalty=0.5))
     timestamp = datetime(2026, 1, 1, tzinfo=UTC)
     features = {
@@ -299,9 +301,9 @@ def test_multi_timeframe_buy_conflict_reduces_confidence(settings: Settings):
         },
     )
 
-    assert setup.signal is SignalType.BUY
-    assert setup.confidence < baseline.confidence
-    assert any("Multi-timeframe conflict" in reason for reason in setup.reasons)
+    assert setup.signal is SignalType.WAIT
+    assert setup.blocked_by_risk_guard is True
+    assert any("higher timeframe conflict" in reason.lower() for reason in setup.reasons)
 
 
 def test_multi_timeframe_buy_alignment_keeps_confidence(settings: Settings):
@@ -391,6 +393,167 @@ def test_explanation_v2_contains_decision_layers(settings: Settings):
     }
 
 
+def test_dynamic_sizing_grade_b_uses_half_size(settings: Settings):
+    engine = SignalEngine(_adaptive_settings(settings))
+    features = {
+        **_base_features(),
+        "close": 101.0,
+        "ema_20": 100.0,
+        "ema_50": 95.0,
+        "rsi_14": 55.0,
+        "regime_confidence": 0.9,
+        "regime_scores": {"UPTREND": 0.5},
+        "volatility_level": "NORMAL",
+    }
+
+    setup = engine.generate(
+        symbol="BTC/USDT",
+        timeframe="15m",
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+        market_regime=MarketRegime.UPTREND,
+        features=features,
+        probabilities={"BUY": 0.70, "SELL": 0.10, "WAIT": 0.20},
+        probability_source="calibrated",
+    )
+
+    assert setup.signal is SignalType.BUY
+    assert setup.size_multiplier == pytest.approx(0.5)
+    assert setup.final_position_size == pytest.approx((setup.base_position_size or 0.0) * 0.5)
+
+
+def test_extreme_volatility_returns_wait(settings: Settings):
+    engine = SignalEngine(settings)
+
+    setup = engine.generate(
+        symbol="BTC/USDT",
+        timeframe="15m",
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+        market_regime=MarketRegime.UPTREND,
+        features={
+            **_base_features(),
+            "close": 101.0,
+            "ema_20": 100.0,
+            "ema_50": 95.0,
+            "rsi_14": 55.0,
+            "volatility_level": "EXTREME",
+        },
+        probabilities={"BUY": 0.70, "SELL": 0.10, "WAIT": 0.20},
+    )
+
+    assert setup.signal is SignalType.WAIT
+    assert setup.blocked_by_risk_guard is True
+    assert any("EXTREME" in reason for reason in setup.reasons)
+
+
+def test_low_regime_confidence_reduces_size_to_zero(settings: Settings):
+    engine = SignalEngine(_adaptive_settings(settings))
+
+    setup = engine.generate(
+        symbol="BTC/USDT",
+        timeframe="15m",
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+        market_regime=MarketRegime.UPTREND,
+        features={
+            **_base_features(),
+            "close": 101.0,
+            "ema_20": 100.0,
+            "ema_50": 95.0,
+            "rsi_14": 55.0,
+            "regime_confidence": 0.45,
+            "regime_scores": {"UPTREND": 0.9},
+            "volatility_level": "NORMAL",
+        },
+        probabilities={"BUY": 0.82, "SELL": 0.05, "WAIT": 0.13},
+        probability_source="calibrated",
+    )
+
+    assert setup.signal in {SignalType.BUY, SignalType.WAIT}
+    assert setup.size_multiplier == pytest.approx(0.0)
+
+
+def test_mean_reversion_danger_blocks_setup(settings: Settings):
+    engine = SignalEngine(settings)
+
+    setup = engine.generate(
+        symbol="BTC/USDT",
+        timeframe="15m",
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+        market_regime=MarketRegime.SIDEWAY,
+        features={
+            **_base_features(),
+            "close": 80.5,
+            "ema_20": 100.0,
+            "ema_50": 100.0,
+            "rsi_14": 30.0,
+            "rolling_low_20": 80.0,
+            "atr_percent_change": 0.6,
+            "volume_ratio": 3.2,
+            "breakout_score": 0.9,
+            "range_test_count": 6,
+        },
+        probabilities={"BUY": 0.70, "SELL": 0.10, "WAIT": 0.20},
+    )
+
+    assert setup.signal is SignalType.WAIT
+    assert setup.explanation_v2["risk"]["mean_reversion_danger_score"] >= 0.7
+    assert any("mean reversion" in reason.lower() for reason in setup.reasons)
+
+
+def test_breakout_fakeout_defense_blocks_rejection_wick(settings: Settings):
+    engine = SignalEngine(settings)
+
+    setup = engine.generate(
+        symbol="BTC/USDT",
+        timeframe="15m",
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+        market_regime=MarketRegime.BREAKOUT_UP,
+        features={
+            **_base_features(),
+            "open": 121.0,
+            "high": 140.0,
+            "low": 120.0,
+            "close": 122.0,
+            "ema_20": 100.0,
+            "ema_50": 105.0,
+            "rsi_14": 55.0,
+            "volume_ratio": 2.0,
+            "rolling_high_20": 120.0,
+            "trend_score": 0.8,
+        },
+        probabilities={"BUY": 0.72, "SELL": 0.10, "WAIT": 0.18},
+    )
+
+    assert setup.signal is SignalType.WAIT
+    assert setup.explanation_v2["risk"]["breakout_fakeout_score"] >= 0.55
+    assert any("fakeout" in reason.lower() for reason in setup.reasons)
+
+
+def test_explanation_v2_contains_risk_adjustments(settings: Settings):
+    engine = SignalEngine(_adaptive_settings(settings))
+
+    setup = engine.generate(
+        symbol="BTC/USDT",
+        timeframe="15m",
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+        market_regime=MarketRegime.UPTREND,
+        features={
+            **_base_features(),
+            "close": 101.0,
+            "ema_20": 100.0,
+            "ema_50": 95.0,
+            "rsi_14": 55.0,
+            "regime_confidence": 0.9,
+            "regime_scores": {"UPTREND": 0.5},
+            "volatility_level": "NORMAL",
+        },
+        probabilities={"BUY": 0.70, "SELL": 0.10, "WAIT": 0.20},
+        probability_source="calibrated",
+    )
+
+    assert setup.explanation_v2 is not None
+    assert setup.explanation_v2["risk"]["risk_adjustments"]
+
+
 def test_multi_timeframe_disabled_keeps_old_behavior(settings: Settings):
     engine = SignalEngine(_multi_timeframe_settings(settings, enabled=False))
 
@@ -476,4 +639,18 @@ def _multi_timeframe_settings(
                 require_higher_tf_alignment=require_higher_tf_alignment,
             ),
         ),
+    )
+
+
+def _adaptive_settings(settings: Settings) -> Settings:
+    """Return settings with adaptive strategy and dynamic sizing enabled."""
+    return replace(
+        settings,
+        adaptive_strategy=replace(
+            settings.adaptive_strategy,
+            enabled=True,
+            base_threshold=0.65,
+            allow_grade_c_signal=True,
+        ),
+        risk=replace(settings.risk, dynamic_sizing_enabled=True),
     )

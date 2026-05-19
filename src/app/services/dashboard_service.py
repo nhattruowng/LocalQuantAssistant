@@ -31,6 +31,7 @@ from risk.risk_guard import RiskGuard, RiskGuardContext, RiskGuardEvent
 from risk.risk_manager import RiskManager
 from signals.models import TradeSetup
 from signals.signal_engine import SignalEngine
+from strategy.memory import StrategyMemoryStore
 
 
 class DashboardService:
@@ -183,6 +184,7 @@ class DashboardService:
             risk_manager=RiskManager(settings.risk),
             risk_guard=risk_guard,
             risk_guard_context=risk_guard_context,
+            strategy_memory=self._strategy_memory_store().load(),
             logger=self._logger,
         ).generate(
             symbol=symbol,
@@ -384,6 +386,8 @@ class DashboardService:
             PaperTradingEngine(
                 database=database,
                 settings=self._settings.paper_trading,
+                strategy_memory_store=self._strategy_memory_store(),
+                adaptive_settings=self._settings.adaptive_strategy,
                 logger=self._logger,
             ).process_setup(setup, row.to_dict())
         except Exception as error:
@@ -504,6 +508,10 @@ class DashboardService:
     def _history_path(self) -> Path:
         """Return local signal history CSV path."""
         return self._settings.features.output_dir / "signal_history.csv"
+
+    def _strategy_memory_store(self) -> StrategyMemoryStore:
+        """Return the local strategy memory JSON store."""
+        return StrategyMemoryStore(self._settings.features.output_dir / "strategy_memory.json")
 
 
 def _probability_data(provider: object, row: pd.Series) -> dict[str, object]:

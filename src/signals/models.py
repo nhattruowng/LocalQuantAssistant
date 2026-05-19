@@ -6,9 +6,12 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from enum import Enum
 import json
-from typing import Mapping
+from typing import TYPE_CHECKING, Mapping
 
 from regime.market_regime import MarketRegime
+
+if TYPE_CHECKING:
+    from strategy.memory import MemoryAdjustment
 
 
 class SignalType(str, Enum):
@@ -185,6 +188,9 @@ class StrategyOpinion:
 class AdaptiveThresholdContext:
     """Inputs used to adjust the adaptive decision threshold."""
 
+    symbol: str | None = None
+    timeframe: str | None = None
+    regime: str | None = None
     regime_confidence: float = 1.0
     uncertainty_score: float = 0.0
     volatility_level: str = "NORMAL"
@@ -222,6 +228,7 @@ class AdaptiveDecision:
     decision_warnings: list[str]
     size_multiplier: float
     conflict_result: DecisionConflictResult
+    memory_adjustments: list["MemoryAdjustment"] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -235,6 +242,11 @@ class RiskPlan:
     risk_reward: float
     position_size: float
     risk_notes: list[str] = field(default_factory=list)
+    base_position_size: float | None = None
+    final_position_size: float | None = None
+    size_multiplier: float = 1.0
+    risk_adjustments: list[dict[str, object]] = field(default_factory=list)
+    safety_filters: list[dict[str, object]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -266,6 +278,12 @@ class TradeSetup:
     model_scope_used: str | None = None
     model_version: str | None = None
     fallback_reason: str | None = None
+    base_position_size: float | None = None
+    final_position_size: float | None = None
+    size_multiplier: float | None = None
+    risk_adjustments: list[dict[str, object]] = field(default_factory=list)
+    safety_filters: list[dict[str, object]] = field(default_factory=list)
+    blocked_by_risk_guard: bool = False
 
     def to_dict(self) -> dict[str, object]:
         """Serialize setup into API-friendly primitive values."""

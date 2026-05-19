@@ -58,6 +58,12 @@ adaptive_strategy:
   high_uncertainty_threshold: 0.45
   require_calibrated_probability: false
   allow_grade_c_signal: false
+  memory_lookback_trades: 30
+  memory_lookback_bars: 200
+  memory_min_trades_required: 10
+  memory_max_score_penalty: 0.20
+  memory_max_size_penalty: 0.50
+  memory_block_after_consecutive_losses: true
 
 model:
   path: null
@@ -73,6 +79,17 @@ risk:
   stop_loss_atr_multiplier: 1.5
   take_profit_1_atr_multiplier: 2.0
   take_profit_2_atr_multiplier: 3.0
+  dynamic_sizing_enabled: true
+  max_risk_per_trade_pct: 1.0
+  min_risk_reward: 2.0
+
+safety_filters:
+  mean_reversion_danger_enabled: true
+  breakout_fakeout_defense_enabled: true
+  extreme_volatility_block: true
+  higher_timeframe_conflict_block: true
+  mean_reversion_danger_threshold: 0.70
+  breakout_fakeout_threshold: 0.55
 
 risk_guard:
   enabled: false

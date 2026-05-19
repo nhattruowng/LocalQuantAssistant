@@ -7,10 +7,11 @@ import logging
 import sqlite3
 from typing import Mapping
 
-from config.settings import PaperTradingSettings
+from config.settings import AdaptiveStrategySettings, PaperTradingSettings
 from database.connection import Database
 from paper.account import PaperAccountSnapshot, PaperTrade, PaperTradingAccount
 from signals.models import SignalType, TradeSetup
+from strategy.memory import StrategyMemoryStore
 
 
 class PaperTradingEngine:
@@ -20,10 +21,14 @@ class PaperTradingEngine:
         self,
         database: Database,
         settings: PaperTradingSettings,
+        strategy_memory_store: StrategyMemoryStore | None = None,
+        adaptive_settings: AdaptiveStrategySettings | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         self._database = database
         self._settings = settings
+        self._strategy_memory_store = strategy_memory_store
+        self._adaptive_settings = adaptive_settings
         self._logger = logger or logging.getLogger("localquant.paper")
 
     def process_setup(
@@ -89,6 +94,8 @@ class PaperTradingEngine:
                 result,
                 pnl,
             )
+        if closed:
+            self._refresh_strategy_memory()
         return closed
 
     def load_account(
@@ -261,6 +268,18 @@ class PaperTradingEngine:
         ).fetchone()
         peak = float(row["peak_equity"]) if row and row["peak_equity"] is not None else equity
         return max(0.0, peak - equity)
+
+    def _refresh_strategy_memory(self) -> None:
+        """Update strategy memory snapshots after closed paper trades change."""
+        if self._strategy_memory_store is None or self._adaptive_settings is None:
+            return
+        try:
+            self._strategy_memory_store.refresh_from_trades(
+                self._closed_trades(),
+                self._adaptive_settings,
+            )
+        except Exception as error:
+            self._logger.warning("Strategy memory refresh failed: %s", error)
 
 
 def _row_to_trade(row: sqlite3.Row) -> PaperTrade:

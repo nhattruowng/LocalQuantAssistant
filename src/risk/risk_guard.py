@@ -145,6 +145,21 @@ class RiskGuard:
             reasons.append("Blocked by risk guard: regime confidence is too low")
         if self._settings.require_calibrated_model and setup.probability_source != "calibrated":
             reasons.append("Blocked by risk guard: model probabilities are not calibrated")
+        diagnostics = setup.strategy_diagnostics or {}
+        min_risk_reward = _optional_float(diagnostics.get("min_risk_reward"))
+        if (
+            min_risk_reward is not None
+            and setup.risk_reward is not None
+            and setup.risk_reward < min_risk_reward
+        ):
+            reasons.append("Blocked by risk guard: risk_reward below minimum")
+        if any(_filter_blocked(item) for item in setup.safety_filters):
+            reasons.append("Blocked by risk guard: safety filter blocked setup")
+        if any(_memory_blocked(item) for item in diagnostics.get("memory_adjustments", [])):
+            reasons.append("Blocked by risk guard: strategy memory block")
+        multi_timeframe = diagnostics.get("multi_timeframe", {})
+        if isinstance(multi_timeframe, dict) and multi_timeframe.get("blocked"):
+            reasons.append("Blocked by risk guard: strong higher timeframe conflict")
         return reasons
 
     def _warning_reasons(self, context: RiskGuardContext) -> list[str]:
@@ -213,6 +228,24 @@ def _setup_regime_confidence(setup: TradeSetup) -> float:
 def _pct_limit(value: float) -> float:
     """Normalize percent config that may be expressed as 5 or 0.05."""
     return value / 100.0 if value > 1.0 else value
+
+
+def _filter_blocked(item: object) -> bool:
+    """Return True when a serialized safety filter blocked the setup."""
+    return isinstance(item, dict) and bool(item.get("blocked", False))
+
+
+def _memory_blocked(item: object) -> bool:
+    """Return True when a serialized memory adjustment blocked a strategy."""
+    return isinstance(item, dict) and bool(item.get("blocked", False))
+
+
+def _optional_float(value: object) -> float | None:
+    """Parse an optional float."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _as_datetime(value: object) -> datetime:

@@ -11,6 +11,7 @@ from config.settings import Settings
 from regime.market_regime import MarketRegime
 from risk.risk_guard import RiskGuard, RiskGuardContext
 from risk.risk_manager import RiskManager
+from risk.safety_filters import SafetyFilterEngine
 from signals.adaptive_decision_engine import (
     AdaptiveDecisionEngine,
     adaptive_decision_to_dict,
@@ -29,6 +30,7 @@ from signals.models import (
 from strategy.base import Strategy
 from strategy.breakout import BreakoutStrategy
 from strategy.mean_reversion import MeanReversionStrategy
+from strategy.memory import StrategyPerformanceMemory
 from strategy.opinion_agents import (
     BreakoutOpinionAgent,
     MeanReversionOpinionAgent,
@@ -47,12 +49,14 @@ class SignalEngine:
         risk_manager: RiskManager | None = None,
         risk_guard: RiskGuard | None = None,
         risk_guard_context: RiskGuardContext | None = None,
+        strategy_memory: StrategyPerformanceMemory | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         self._settings = settings
         self._risk_manager = risk_manager or RiskManager(settings.risk)
         self._risk_guard = risk_guard
         self._risk_guard_context = risk_guard_context
+        self._strategy_memory = strategy_memory
         self._logger = logger or logging.getLogger("localquant.signal")
         self._strategies: dict[str, Strategy] = {
             MarketRegime.UPTREND.value: TrendFollowingStrategy(settings.signal),
@@ -88,6 +92,12 @@ class SignalEngine:
         """Generate a complete trade setup recommendation."""
         higher_features = dict(higher_timeframe_features or {})
         higher_regimes = dict(higher_timeframe_regimes or _higher_timeframe_regimes(higher_features))
+        effective_mtf_enabled = bool(
+            self._settings.signal.multi_timeframe
+            and self._settings.signal.multi_timeframe.enabled
+        )
+        if multi_timeframe_enabled is not None:
+            effective_mtf_enabled = bool(multi_timeframe_enabled)
         context = SignalContext(
             symbol=symbol,
             timeframe=timeframe,
@@ -108,7 +118,7 @@ class SignalEngine:
                 "probability_source": probability_source,
             },
             explanation_context={
-                "multi_timeframe_enabled": multi_timeframe_enabled,
+                "multi_timeframe_enabled": effective_mtf_enabled,
             },
             regime_scores=_regime_scores(features),
             regime_confidence=_regime_confidence(features),
@@ -165,7 +175,25 @@ class SignalEngine:
         risk_plan = self._risk_plan_for(context, decision, features, model_selection)
         if isinstance(risk_plan, TradeSetup):
             return risk_plan
-        risk_plan = self._apply_opinion_size_multiplier(risk_plan, diagnostics)
+        safety = SafetyFilterEngine(self._settings.safety_filters).evaluate(context, decision)
+        diagnostics = {
+            **(diagnostics or {}),
+            "safety_filters": safety.filters,
+            "safety_filter_reasons": safety.reasons,
+            "safety_filter_warnings": safety.warnings,
+            "mean_reversion_danger_score": safety.mean_reversion_danger_score,
+            "breakout_fakeout_score": safety.breakout_fakeout_score,
+        }
+        if safety.blocked:
+            return self._wait(
+                context,
+                [*decision.reasons, *safety.reasons],
+                decision.strategy,
+                risk_plan,
+                diagnostics={**diagnostics, "blocked_by_risk_guard": True},
+                model_selection=model_selection,
+            )
+        risk_plan = self._apply_dynamic_position_sizing(context, decision, risk_plan, diagnostics)
         if not self._is_risk_acceptable(risk_plan):
             return self._wait(
                 context,
@@ -173,12 +201,16 @@ class SignalEngine:
                     *decision.reasons,
                     (
                         f"Risk/reward {risk_plan.risk_reward:.2f} is below "
-                        f"{self._settings.signal.min_risk_reward:.2f}."
+                        f"{self._min_risk_reward():.2f}."
                     ),
                 ],
                 decision.strategy,
                 risk_plan,
-                diagnostics=diagnostics,
+                diagnostics={
+                    **(diagnostics or {}),
+                    "blocked_by_risk_guard": True,
+                    "min_risk_reward": self._min_risk_reward(),
+                },
                 model_selection=model_selection,
             )
 
@@ -195,6 +227,7 @@ class SignalEngine:
                         **(diagnostics or {}),
                         "risk_guard_state": guard.state.value,
                         "risk_guard_reasons": guard.reasons,
+                        "blocked_by_risk_guard": True,
                     },
                     model_selection=model_selection,
                 )
@@ -225,17 +258,20 @@ class SignalEngine:
         decision = AdaptiveDecisionEngine(self._settings.adaptive_strategy).decide(
             opinions,
             _adaptive_threshold_context(context),
+            strategy_memory=self._strategy_memory,
         )
+        decision_payload = adaptive_decision_to_dict(decision)
         diagnostics: dict[str, object] = {
             "adaptive_strategy": True,
             "strategy_opinions": [opinion_to_dict(opinion) for opinion in opinions],
-            "adaptive_decision": adaptive_decision_to_dict(decision),
+            "adaptive_decision": decision_payload,
             "adaptive_threshold": decision.adaptive_threshold,
             "setup_quality": decision.setup_quality.value,
-            "conflict_result": adaptive_decision_to_dict(decision)["conflict_result"],
+            "conflict_result": decision_payload["conflict_result"],
             "decision_warnings": decision.decision_warnings,
-            "why_wait": adaptive_decision_to_dict(decision)["why_wait"],
+            "why_wait": decision_payload["why_wait"],
             "rejected_strategies": [opinion_to_dict(opinion) for opinion in decision.rejected_opinions],
+            "memory_adjustments": decision_payload["memory_adjustments"],
             "reasons": decision.decision_reasons,
         }
         if decision.selected_opinion is not None:
@@ -370,7 +406,57 @@ class SignalEngine:
 
     def _is_risk_acceptable(self, risk_plan: RiskPlan) -> bool:
         """Return True when risk/reward passes the configured gate."""
-        return risk_plan.risk_reward >= self._settings.signal.min_risk_reward
+        return risk_plan.risk_reward >= self._min_risk_reward()
+
+    def _min_risk_reward(self) -> float:
+        """Return the effective minimum risk/reward threshold."""
+        return max(self._settings.signal.min_risk_reward, self._settings.risk.min_risk_reward)
+
+    def _apply_dynamic_position_sizing(
+        self,
+        context: SignalContext,
+        decision: StrategyDecision,
+        risk_plan: RiskPlan,
+        diagnostics: dict[str, object] | None,
+    ) -> RiskPlan:
+        """Apply setup-quality, context, memory, and drawdown sizing multipliers."""
+        if not self._settings.risk.dynamic_sizing_enabled:
+            return replace(
+                risk_plan,
+                base_position_size=risk_plan.base_position_size or risk_plan.position_size,
+                final_position_size=risk_plan.position_size,
+                size_multiplier=1.0,
+            )
+
+        setup_quality = str((diagnostics or {}).get("setup_quality") or _quality_from_score(decision.score))
+        multipliers = [
+            ("setup_quality_multiplier", _setup_quality_multiplier(setup_quality)),
+            ("regime_confidence_multiplier", _regime_confidence_multiplier(context.regime_confidence)),
+            ("volatility_multiplier", _volatility_multiplier(str((context.primary_features or context.features).get("volatility_level", "NORMAL")))),
+            ("memory_performance_multiplier", _memory_performance_multiplier(diagnostics)),
+            ("drawdown_multiplier", _drawdown_multiplier(self._risk_guard_context)),
+        ]
+        size_multiplier = 1.0
+        adjustments: list[dict[str, object]] = []
+        for name, multiplier in multipliers:
+            bounded = max(0.0, min(float(multiplier), 1.0))
+            size_multiplier *= bounded
+            adjustments.append({"name": name, "multiplier": round(bounded, 4)})
+        base_position_size = risk_plan.base_position_size or risk_plan.position_size
+        final_position_size = base_position_size * size_multiplier
+        notes = list(risk_plan.risk_notes)
+        if size_multiplier < 0.999:
+            notes.append(f"Dynamic position sizing applied: {size_multiplier:.2f}x.")
+        return replace(
+            risk_plan,
+            position_size=final_position_size,
+            base_position_size=base_position_size,
+            final_position_size=final_position_size,
+            size_multiplier=round(size_multiplier, 4),
+            risk_adjustments=adjustments,
+            safety_filters=list((diagnostics or {}).get("safety_filters", [])),
+            risk_notes=notes,
+        )
 
     def _apply_opinion_size_multiplier(
         self,
@@ -638,10 +724,26 @@ class SignalEngine:
                 "passed_conditions": list(passed_conditions),
                 "failed_conditions": list(failed_conditions),
                 "rejected_strategies": (diagnostics or {}).get("rejected_strategies", []),
+                "memory_adjustments": (diagnostics or {}).get("memory_adjustments", []),
             },
             "risk": {
                 "risk_reward": risk_plan.risk_reward if risk_plan else None,
                 "position_size": risk_plan.position_size if risk_plan else None,
+                "base_position_size": risk_plan.base_position_size if risk_plan else None,
+                "final_position_size": risk_plan.final_position_size if risk_plan else None,
+                "size_multiplier": risk_plan.size_multiplier if risk_plan else None,
+                "risk_adjustments": risk_plan.risk_adjustments if risk_plan else [],
+                "safety_filters": (diagnostics or {}).get("safety_filters", risk_plan.safety_filters if risk_plan else []),
+                "mean_reversion_danger_score": (diagnostics or {}).get("mean_reversion_danger_score"),
+                "breakout_fakeout_score": (diagnostics or {}).get("breakout_fakeout_score"),
+                "blocked_by_risk_guard": bool((diagnostics or {}).get("blocked_by_risk_guard", False)),
+                "final_risk_decision": (
+                    "BLOCKED"
+                    if (diagnostics or {}).get("blocked_by_risk_guard")
+                    else "APPROVED"
+                    if final_signal is not SignalType.WAIT
+                    else "WAIT"
+                ),
                 "risk_notes": risk_plan.risk_notes if risk_plan else [],
             },
             "model": {
@@ -712,6 +814,12 @@ class SignalEngine:
                     **(diagnostics or {}),
                     "multi_timeframe": mtf["explanation"],
                 },
+                base_position_size=risk_plan.base_position_size,
+                final_position_size=risk_plan.final_position_size,
+                size_multiplier=risk_plan.size_multiplier,
+                risk_adjustments=risk_plan.risk_adjustments,
+                safety_filters=risk_plan.safety_filters,
+                blocked_by_risk_guard=bool((diagnostics or {}).get("blocked_by_risk_guard", False)),
                 probabilities=_probability_values(context.probabilities),
                 raw_probabilities=_probability_values(context.raw_probabilities),
                 calibrated_probabilities=_probability_values(context.calibrated_probabilities),
@@ -760,6 +868,12 @@ class SignalEngine:
                 decision=decision,
             ),
             strategy_diagnostics=diagnostics_with_mtf,
+            base_position_size=risk_plan.base_position_size,
+            final_position_size=risk_plan.final_position_size,
+            size_multiplier=risk_plan.size_multiplier,
+            risk_adjustments=risk_plan.risk_adjustments,
+            safety_filters=risk_plan.safety_filters,
+            blocked_by_risk_guard=bool(diagnostics_with_mtf.get("blocked_by_risk_guard", False)),
             probabilities=_probability_values(context.probabilities),
             raw_probabilities=_probability_values(context.raw_probabilities),
             calibrated_probabilities=_probability_values(context.calibrated_probabilities),
@@ -807,6 +921,16 @@ class SignalEngine:
             position_size=risk_plan.position_size if risk_plan else None,
             reasons=reasons,
             risk_notes=risk_plan.risk_notes if risk_plan else [],
+            base_position_size=risk_plan.base_position_size if risk_plan else None,
+            final_position_size=risk_plan.final_position_size if risk_plan else None,
+            size_multiplier=risk_plan.size_multiplier if risk_plan else None,
+            risk_adjustments=risk_plan.risk_adjustments if risk_plan else [],
+            safety_filters=(
+                list((diagnostics or {}).get("safety_filters", []))
+                if diagnostics
+                else risk_plan.safety_filters if risk_plan else []
+            ),
+            blocked_by_risk_guard=bool((diagnostics or {}).get("blocked_by_risk_guard", False)),
             explanation_v2=self._structured_explanation(
                 context=context,
                 final_signal=SignalType.WAIT,
@@ -867,6 +991,9 @@ def _adaptive_threshold_context(context: SignalContext) -> AdaptiveThresholdCont
     volume_ratio = _feature_float(features, "volume_ratio", 1.0)
     trend_alignment = abs(_feature_float(features, "trend_score", 0.0))
     return AdaptiveThresholdContext(
+        symbol=context.symbol,
+        timeframe=context.timeframe,
+        regime=context.regime_value(),
         regime_confidence=context.regime_confidence,
         uncertainty_score=uncertainty,
         volatility_level=str(features.get("volatility_level", "NORMAL")),
@@ -879,6 +1006,84 @@ def _adaptive_threshold_context(context: SignalContext) -> AdaptiveThresholdCont
         volume_quality=max(0.0, min(volume_ratio / 1.5, 1.0)),
         trend_alignment=max(0.0, min(trend_alignment, 1.0)),
     )
+
+
+def _setup_quality_multiplier(quality: str) -> float:
+    """Map setup quality to risk multiplier."""
+    normalized = quality.upper()
+    return {
+        "A_PLUS": 1.0,
+        "A": 0.8,
+        "B": 0.5,
+        "C": 0.25,
+        "D": 0.0,
+    }.get(normalized, 0.5)
+
+
+def _quality_from_score(score: float) -> str:
+    """Infer setup quality when adaptive diagnostics are unavailable."""
+    if score >= 0.85:
+        return "A_PLUS"
+    if score >= 0.78:
+        return "A"
+    if score >= 0.68:
+        return "B"
+    if score >= 0.58:
+        return "C"
+    return "D"
+
+
+def _regime_confidence_multiplier(confidence: float) -> float:
+    """Map regime confidence to risk multiplier."""
+    if confidence >= 0.75:
+        return 1.0
+    if confidence >= 0.60:
+        return 0.75
+    if confidence >= 0.50:
+        return 0.5
+    return 0.0
+
+
+def _volatility_multiplier(level: str) -> float:
+    """Map volatility level to risk multiplier."""
+    normalized = level.upper()
+    if normalized == "LOW":
+        return 0.8
+    if normalized == "HIGH":
+        return 0.5
+    if normalized == "EXTREME":
+        return 0.0
+    return 1.0
+
+
+def _memory_performance_multiplier(diagnostics: Mapping[str, object] | None) -> float:
+    """Read memory size multiplier from adaptive diagnostics."""
+    adjustments = (diagnostics or {}).get("memory_adjustments", [])
+    if not isinstance(adjustments, list) or not adjustments:
+        return 1.0
+    multiplier = 1.0
+    for adjustment in adjustments:
+        if not isinstance(adjustment, dict):
+            continue
+        try:
+            multiplier = min(multiplier, float(adjustment.get("size_multiplier", 1.0)))
+        except (TypeError, ValueError):
+            continue
+        if adjustment.get("blocked"):
+            return 0.0
+    return max(0.0, min(multiplier, 1.0))
+
+
+def _drawdown_multiplier(context: RiskGuardContext | None) -> float:
+    """Reduce risk as paper equity drawdown increases."""
+    if context is None or context.initial_balance <= 0:
+        return 1.0
+    drawdown = max(0.0, (context.initial_balance - context.equity) / context.initial_balance)
+    if drawdown >= 0.05:
+        return 0.5
+    if drawdown >= 0.02:
+        return 0.75
+    return 1.0
 
 
 def _has_higher_timeframe_conflict(context: SignalContext) -> bool:
