@@ -12,6 +12,7 @@ from signals.models import (
     StrategyOpinion,
     StrategyType,
 )
+from signals.wait_reason import WaitReason
 from strategy.memory import MemoryAdjustment, StrategyPerformanceMemory
 
 
@@ -68,6 +69,7 @@ class AdaptiveDecisionEngine:
                 warnings=[],
                 conflict=conflict,
                 why_wait="No actionable strategy opinion.",
+                wait_reason=WaitReason.WAIT_LOW_CONFIDENCE,
                 memory_adjustments=memory_adjustments,
             )
 
@@ -91,6 +93,7 @@ class AdaptiveDecisionEngine:
                 warnings=warnings,
                 conflict=conflict,
                 why_wait="BUY/SELL opinions conflict with a small score gap.",
+                wait_reason=WaitReason.WAIT_STRATEGY_CONFLICT,
                 memory_adjustments=memory_adjustments,
             )
         if top.score < threshold:
@@ -105,6 +108,7 @@ class AdaptiveDecisionEngine:
                 warnings=warnings,
                 conflict=conflict,
                 why_wait="Selected opinion score is below adaptive threshold.",
+                wait_reason=WaitReason.WAIT_LOW_CONFIDENCE,
                 memory_adjustments=memory_adjustments,
             )
         if quality is SetupQualityGrade.D:
@@ -119,6 +123,7 @@ class AdaptiveDecisionEngine:
                 warnings=warnings,
                 conflict=conflict,
                 why_wait="Setup quality is D.",
+                wait_reason=WaitReason.WAIT_NO_CLEAR_SETUP,
                 memory_adjustments=memory_adjustments,
             )
         if quality is SetupQualityGrade.C and not self._settings.allow_grade_c_signal:
@@ -133,6 +138,7 @@ class AdaptiveDecisionEngine:
                 warnings=warnings,
                 conflict=conflict,
                 why_wait="Setup quality C is not allowed by config.",
+                wait_reason=WaitReason.WAIT_NO_CLEAR_SETUP,
                 memory_adjustments=memory_adjustments,
             )
 
@@ -152,6 +158,7 @@ class AdaptiveDecisionEngine:
             size_multiplier=top.suggested_size_multiplier,
             conflict_result=conflict,
             memory_adjustments=memory_adjustments,
+            wait_reason=None,
         )
 
     def _adaptive_threshold(
@@ -257,6 +264,7 @@ class AdaptiveDecisionEngine:
         warnings: list[str],
         conflict: DecisionConflictResult,
         why_wait: str,
+        wait_reason: WaitReason,
         memory_adjustments: list[MemoryAdjustment] | None = None,
     ) -> AdaptiveDecision:
         """Build a WAIT adaptive decision."""
@@ -274,6 +282,7 @@ class AdaptiveDecisionEngine:
             size_multiplier=0.0,
             conflict_result=conflict,
             memory_adjustments=list(memory_adjustments or []),
+            wait_reason=wait_reason.value,
         )
 
 
@@ -303,6 +312,7 @@ def adaptive_decision_to_dict(decision: AdaptiveDecision) -> dict[str, object]:
             "reason": decision.conflict_result.reason,
         },
         "why_wait": _why_wait(decision),
+        "wait_reason": decision.wait_reason,
     }
 
 

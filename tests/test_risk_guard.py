@@ -13,6 +13,7 @@ from risk.risk_guard import RiskGuard, RiskGuardContext
 from risk.risk_manager import RiskManager
 from signals.models import SignalType, StrategyType, TradeSetup
 from signals.signal_engine import SignalEngine
+from signals.wait_reason import WaitReason
 
 
 NOW = datetime(2026, 1, 10, 12, tzinfo=UTC)
@@ -127,6 +128,7 @@ def test_signal_engine_returns_wait_when_risk_guard_blocks():
     )
 
     assert setup.signal is SignalType.WAIT
+    assert setup.wait_reason == WaitReason.WAIT_RISK_BLOCK.value
     assert any("risk guard" in reason for reason in setup.reasons)
 
 

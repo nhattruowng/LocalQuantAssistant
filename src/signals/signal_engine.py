@@ -16,6 +16,7 @@ from signals.adaptive_decision_engine import (
     AdaptiveDecisionEngine,
     adaptive_decision_to_dict,
 )
+from signals.decision_trace import DecisionTrace
 from signals.models import (
     AdaptiveThresholdContext,
     RiskPlan,
@@ -27,6 +28,7 @@ from signals.models import (
     StrategyType,
     TradeSetup,
 )
+from signals.wait_reason import WaitReason, infer_wait_reason, normalize_wait_reason
 from strategy.base import Strategy
 from strategy.breakout import BreakoutStrategy
 from strategy.mean_reversion import MeanReversionStrategy
@@ -273,6 +275,7 @@ class SignalEngine:
             "rejected_strategies": [opinion_to_dict(opinion) for opinion in decision.rejected_opinions],
             "memory_adjustments": decision_payload["memory_adjustments"],
             "reasons": decision.decision_reasons,
+            "wait_reason": decision.wait_reason,
         }
         if decision.selected_opinion is not None:
             top = decision.selected_opinion
@@ -686,6 +689,9 @@ class SignalEngine:
         ]
         return {
             "final_decision": final_signal.value,
+            "wait_reason": (diagnostics or {}).get("wait_reason")
+            if final_signal is SignalType.WAIT
+            else None,
             "summary": summary,
             "regime": {
                 "primary": context.regime_value(),
@@ -721,6 +727,7 @@ class SignalEngine:
                 "setup_quality": (diagnostics or {}).get("setup_quality"),
                 "decision_warnings": (diagnostics or {}).get("decision_warnings", []),
                 "why_wait": (diagnostics or {}).get("why_wait"),
+                "wait_reason": (diagnostics or {}).get("wait_reason"),
                 "passed_conditions": list(passed_conditions),
                 "failed_conditions": list(failed_conditions),
                 "rejected_strategies": (diagnostics or {}).get("rejected_strategies", []),
@@ -783,56 +790,34 @@ class SignalEngine:
         mtf = self._multi_timeframe_confirmation(context, decision)
         reasons.extend(str(reason) for reason in mtf["reasons"])
         if mtf["blocked"]:
-            explanation = self._structured_explanation(
+            return self._wait(
                 context=context,
-                final_signal=SignalType.WAIT,
-                strategy=decision.strategy,
                 reasons=reasons,
+                strategy=decision.strategy,
                 risk_plan=risk_plan,
-                diagnostics=diagnostics,
-                mtf_explanation=mtf["explanation"],
-                decision=decision,
-            )
-            return TradeSetup(
-                symbol=context.symbol,
-                timeframe=context.timeframe,
-                timestamp=context.timestamp,
-                market_regime=context.regime_value(),
-                signal=SignalType.WAIT,
-                strategy=decision.strategy,
-                confidence=context.probability(SignalType.WAIT),
-                entry=risk_plan.entry,
-                stop_loss=risk_plan.stop_loss,
-                take_profit_1=risk_plan.take_profit_1,
-                take_profit_2=risk_plan.take_profit_2,
-                risk_reward=risk_plan.risk_reward,
-                position_size=risk_plan.position_size,
-                reasons=reasons,
-                risk_notes=risk_plan.risk_notes,
-                explanation_v2=explanation,
-                strategy_diagnostics={
+                diagnostics={
                     **(diagnostics or {}),
                     "multi_timeframe": mtf["explanation"],
                 },
-                base_position_size=risk_plan.base_position_size,
-                final_position_size=risk_plan.final_position_size,
-                size_multiplier=risk_plan.size_multiplier,
-                risk_adjustments=risk_plan.risk_adjustments,
-                safety_filters=risk_plan.safety_filters,
-                blocked_by_risk_guard=bool((diagnostics or {}).get("blocked_by_risk_guard", False)),
-                probabilities=_probability_values(context.probabilities),
-                raw_probabilities=_probability_values(context.raw_probabilities),
-                calibrated_probabilities=_probability_values(context.calibrated_probabilities),
-                probability_source=context.probability_source,
-                model_scope_used=(model_selection or {}).get("model_scope_used"),
-                model_version=(model_selection or {}).get("model_version"),
-                fallback_reason=(model_selection or {}).get("fallback_reason"),
+                model_selection=model_selection,
+                mtf_explanation=mtf["explanation"],
+                wait_reason=WaitReason.WAIT_MTF_CONFLICT.value,
             )
         confidence = round(confidence * float(mtf["confidence_multiplier"]), 4)
         diagnostics_with_mtf = {
             **(diagnostics or {}),
             "multi_timeframe": mtf["explanation"],
         }
+        diagnostics_with_mtf["decision_trace"] = self._decision_trace(
+            context=context,
+            final_signal=decision.signal,
+            strategy=decision.strategy,
+            reasons=reasons,
+            final_confidence=confidence,
+            diagnostics=diagnostics_with_mtf,
+            wait_reason=None,
+            model_selection=model_selection,
+        )
         self._logger.info(
             "Signal generated: symbol=%s timeframe=%s signal=%s strategy=%s confidence=%.4f",
             context.symbol,
@@ -881,7 +866,61 @@ class SignalEngine:
             model_scope_used=(model_selection or {}).get("model_scope_used"),
             model_version=(model_selection or {}).get("model_version"),
             fallback_reason=(model_selection or {}).get("fallback_reason"),
+            wait_reason=None,
         )
+
+    def _decision_trace(
+        self,
+        context: SignalContext,
+        final_signal: SignalType,
+        strategy: StrategyType,
+        reasons: list[str],
+        final_confidence: float,
+        diagnostics: dict[str, object] | None,
+        wait_reason: str | None,
+        model_selection: dict[str, str | None] | None,
+    ) -> dict[str, object]:
+        """Build a compact decision trace payload for diagnostics."""
+        trace = DecisionTrace(
+            symbol=context.symbol,
+            timeframe=context.timeframe,
+            final_signal=final_signal.value,
+            final_confidence=round(final_confidence, 4),
+            model_version=(model_selection or {}).get("model_version"),
+            config_hash=None,
+        )
+        final_score = 0.0
+        if isinstance(diagnostics, dict):
+            final_score = _optional_feature_float(diagnostics, "adaptive_threshold") or 0.0
+            selected = diagnostics.get("selected_strategy")
+            if isinstance(selected, dict):
+                selected_score = _optional_feature_float(selected, "score")
+                if selected_score is not None:
+                    final_score = selected_score
+        details: dict[str, object] = {
+            "strategy": strategy.value,
+            "reason_count": len(reasons),
+            "latest_reasons": reasons[-3:],
+        }
+        if wait_reason is not None:
+            details["wait_reason"] = wait_reason
+        if diagnostics and isinstance(diagnostics.get("multi_timeframe"), dict):
+            details["multi_timeframe"] = diagnostics["multi_timeframe"]
+        trace.add_step(
+            step_name="final_decision",
+            input_score=round(final_score, 4),
+            output_score=round(final_score, 4),
+            passed=final_signal is not SignalType.WAIT,
+            details=details,
+            warnings=[
+                str(item)
+                for item in (diagnostics or {}).get("decision_warnings", [])
+                if isinstance(item, str)
+            ],
+        )
+        if wait_reason is not None:
+            trace.add_warning(wait_reason)
+        return trace.to_dict()
 
     def _score(self, decision: StrategyDecision, risk_plan: RiskPlan) -> float:
         """Calculate weighted confidence score."""
@@ -903,8 +942,42 @@ class SignalEngine:
         risk_plan: RiskPlan | None = None,
         diagnostics: dict[str, object] | None = None,
         model_selection: dict[str, str | None] | None = None,
+        mtf_explanation: dict[str, object] | None = None,
+        wait_reason: str | None = None,
     ) -> TradeSetup:
         """Return a non-actionable WAIT setup."""
+        diagnostics_payload = dict(diagnostics or {})
+        reason = normalize_wait_reason(
+            wait_reason
+            or infer_wait_reason(
+                reasons=reasons,
+                diagnostics=diagnostics_payload,
+                volatility_level=str(
+                    (context.primary_features or context.features).get("volatility_level", "UNKNOWN")
+                ),
+                transition_warning=context.transition_warning,
+            ).value
+        ).value
+        diagnostics_payload["wait_reason"] = reason
+        diagnostics_payload["decision_trace"] = self._decision_trace(
+            context=context,
+            final_signal=SignalType.WAIT,
+            strategy=strategy,
+            reasons=reasons,
+            final_confidence=context.probability(SignalType.WAIT),
+            diagnostics=diagnostics_payload,
+            wait_reason=reason,
+            model_selection=model_selection,
+        )
+        resolved_mtf_explanation = (
+            mtf_explanation
+            if mtf_explanation is not None
+            else (
+                diagnostics_payload.get("multi_timeframe")
+                if isinstance(diagnostics_payload.get("multi_timeframe"), dict)
+                else self._multi_timeframe_explanation_disabled_or_missing(context)
+            )
+        )
         return TradeSetup(
             symbol=context.symbol,
             timeframe=context.timeframe,
@@ -926,22 +999,22 @@ class SignalEngine:
             size_multiplier=risk_plan.size_multiplier if risk_plan else None,
             risk_adjustments=risk_plan.risk_adjustments if risk_plan else [],
             safety_filters=(
-                list((diagnostics or {}).get("safety_filters", []))
-                if diagnostics
+                list((diagnostics_payload or {}).get("safety_filters", []))
+                if diagnostics_payload
                 else risk_plan.safety_filters if risk_plan else []
             ),
-            blocked_by_risk_guard=bool((diagnostics or {}).get("blocked_by_risk_guard", False)),
+            blocked_by_risk_guard=bool((diagnostics_payload or {}).get("blocked_by_risk_guard", False)),
             explanation_v2=self._structured_explanation(
                 context=context,
                 final_signal=SignalType.WAIT,
                 strategy=strategy,
                 reasons=reasons,
                 risk_plan=risk_plan,
-                diagnostics=diagnostics,
-                mtf_explanation=self._multi_timeframe_explanation_disabled_or_missing(context),
+                diagnostics=diagnostics_payload,
+                mtf_explanation=resolved_mtf_explanation,
                 decision=None,
             ),
-            strategy_diagnostics=diagnostics,
+            strategy_diagnostics=diagnostics_payload,
             probabilities=_probability_values(context.probabilities),
             raw_probabilities=_probability_values(context.raw_probabilities),
             calibrated_probabilities=_probability_values(context.calibrated_probabilities),
@@ -949,6 +1022,7 @@ class SignalEngine:
             model_scope_used=(model_selection or {}).get("model_scope_used"),
             model_version=(model_selection or {}).get("model_version"),
             fallback_reason=(model_selection or {}).get("fallback_reason"),
+            wait_reason=reason,
         )
 
 

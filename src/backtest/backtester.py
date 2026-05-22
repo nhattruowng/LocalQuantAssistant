@@ -332,7 +332,13 @@ class Backtester:
             signal=setup.signal,
             row=signal_row.to_dict(),
         )
-        position_size = float(setup.position_size or 0.0)
+        # Backtest PnL uses the base planned size so execution-cost tests remain
+        # comparable even when dynamic sizing diagnostics are attached.
+        position_size = float(
+            setup.base_position_size
+            if setup.base_position_size is not None
+            else (setup.position_size or 0.0)
+        )
         exit_simulation = self._find_exit(data, signal_index, setup)
         exit_row = data.iloc[exit_simulation.close_index]
 

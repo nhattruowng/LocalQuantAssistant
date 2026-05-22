@@ -12,6 +12,7 @@ from config.settings import Settings
 from regime.market_regime import MarketRegime
 from signals.models import SignalType, StrategyType
 from signals.signal_engine import SignalEngine
+from signals.wait_reason import WaitReason
 
 
 def test_signal_engine_generates_trend_following_buy():
@@ -37,6 +38,9 @@ def test_signal_engine_generates_trend_following_buy():
     assert setup.risk_reward == 2.0
     assert setup.position_size is not None
     assert setup.confidence > 0.0
+    payload = setup.to_dict()
+    assert payload["signal"] == "BUY"
+    assert payload["wait_reason"] is None
 
 
 def test_signal_engine_generates_trend_following_sell():
@@ -83,8 +87,12 @@ def test_signal_engine_returns_wait_when_probability_is_low():
     )
 
     assert setup.signal is SignalType.WAIT
+    assert setup.wait_reason == WaitReason.WAIT_LOW_CONFIDENCE.value
     assert setup.entry is None
     assert any("probability" in reason for reason in setup.reasons)
+    trace = (setup.strategy_diagnostics or {}).get("decision_trace", {})
+    assert trace["steps"][-1]["step_name"] == "final_decision"
+    assert trace["steps"][-1]["details"]["wait_reason"] == WaitReason.WAIT_LOW_CONFIDENCE.value
 
 
 def test_signal_engine_returns_wait_when_risk_reward_is_too_low(
@@ -303,6 +311,7 @@ def test_multi_timeframe_buy_conflict_blocks_when_safety_enabled(settings: Setti
 
     assert setup.signal is SignalType.WAIT
     assert setup.blocked_by_risk_guard is True
+    assert setup.wait_reason == WaitReason.WAIT_MTF_CONFLICT.value
     assert any("higher timeframe conflict" in reason.lower() for reason in setup.reasons)
 
 
@@ -442,7 +451,32 @@ def test_extreme_volatility_returns_wait(settings: Settings):
 
     assert setup.signal is SignalType.WAIT
     assert setup.blocked_by_risk_guard is True
+    assert setup.wait_reason == WaitReason.WAIT_HIGH_VOLATILITY.value
     assert any("EXTREME" in reason for reason in setup.reasons)
+
+
+def test_wait_data_quality_when_risk_plan_inputs_are_invalid(settings: Settings):
+    engine = SignalEngine(settings)
+
+    setup = engine.generate(
+        symbol="BTC/USDT",
+        timeframe="15m",
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+        market_regime=MarketRegime.UPTREND,
+        features={
+            **_base_features(),
+            "close": 101.0,
+            "atr_14": 0.0,
+            "ema_20": 100.0,
+            "ema_50": 95.0,
+            "rsi_14": 55.0,
+        },
+        probabilities={"BUY": 0.70, "SELL": 0.10, "WAIT": 0.20},
+    )
+
+    assert setup.signal is SignalType.WAIT
+    assert setup.wait_reason == WaitReason.WAIT_DATA_QUALITY.value
+    assert any("Risk plan failed" in reason for reason in setup.reasons)
 
 
 def test_low_regime_confidence_reduces_size_to_zero(settings: Settings):
