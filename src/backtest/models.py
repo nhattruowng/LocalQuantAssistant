@@ -48,6 +48,14 @@ class Trade:
     volatility_bucket: str = "UNKNOWN"
     atr_percent: float = 0.0
     holding_bars: int = 0
+    setup_type: str = "UNKNOWN"
+    setup_grade: str = "UNKNOWN"
+    wait_reason: str = "NONE"
+    safety_filter: str = "NONE"
+    model_scope: str = "UNKNOWN"
+    probability_source: str = "raw"
+    conflict_level: str = "NONE"
+    confluence_score: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize trade into primitive values."""
