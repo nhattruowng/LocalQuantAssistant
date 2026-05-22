@@ -617,6 +617,60 @@ def test_multi_timeframe_disabled_keeps_old_behavior(settings: Settings):
     assert setup.explanation_v2["multi_timeframe"]["enabled"] is False
 
 
+def test_reasoning_brain_disabled_keeps_legacy_behavior(settings: Settings):
+    engine = SignalEngine(_adaptive_settings(settings))
+
+    setup = engine.generate(
+        symbol="BTC/USDT",
+        timeframe="15m",
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+        market_regime=MarketRegime.UPTREND,
+        features={
+            **_base_features(),
+            "close": 101.0,
+            "ema_20": 100.0,
+            "ema_50": 95.0,
+            "rsi_14": 55.0,
+            "regime_confidence": 0.9,
+            "regime_scores": {"UPTREND": 0.5},
+            "volatility_level": "NORMAL",
+        },
+        probabilities={"BUY": 0.70, "SELL": 0.10, "WAIT": 0.20},
+        probability_source="calibrated",
+    )
+
+    assert setup.signal is SignalType.BUY
+    assert setup.reasoning_decision is None
+
+
+def test_reasoning_brain_enabled_adds_reasoning_payload(settings: Settings):
+    engine = SignalEngine(_reasoning_brain_settings(_adaptive_settings(settings)))
+
+    setup = engine.generate(
+        symbol="BTC/USDT",
+        timeframe="15m",
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+        market_regime=MarketRegime.UPTREND,
+        features={
+            **_base_features(),
+            "close": 101.0,
+            "ema_20": 100.0,
+            "ema_50": 95.0,
+            "rsi_14": 55.0,
+            "regime_confidence": 0.9,
+            "regime_scores": {"UPTREND": 0.5},
+            "volatility_level": "NORMAL",
+        },
+        probabilities={"BUY": 0.75, "SELL": 0.10, "WAIT": 0.15},
+        probability_source="calibrated",
+    )
+
+    assert setup.reasoning_decision is not None
+    assert setup.explanation_v2 is not None
+    assert setup.explanation_v2["strategy"]["setup_type"] is not None
+    assert setup.explanation_v2["strategy"]["confluence_score"] is not None
+
+
 def _base_features() -> dict[str, float]:
     """Return common technical feature values for signal tests."""
     return {
@@ -687,4 +741,20 @@ def _adaptive_settings(settings: Settings) -> Settings:
             allow_grade_c_signal=True,
         ),
         risk=replace(settings.risk, dynamic_sizing_enabled=True),
+    )
+
+
+def _reasoning_brain_settings(settings: Settings) -> Settings:
+    """Enable reasoning brain with lenient threshold for integration tests."""
+    return replace(
+        settings,
+        reasoning_brain=replace(
+            settings.reasoning_brain,
+            enabled=True,
+            min_confluence_score=0.35,
+            medium_score_threshold=0.25,
+            strong_conflict_threshold=0.30,
+            allow_reduced_size_for_medium_score=True,
+            max_conflict_penalty=0.30,
+        ),
     )

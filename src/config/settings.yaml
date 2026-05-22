@@ -65,6 +65,14 @@ adaptive_strategy:
   memory_max_size_penalty: 0.50
   memory_block_after_consecutive_losses: true
 
+reasoning_brain:
+  enabled: false
+  min_confluence_score: 0.68
+  medium_score_threshold: 0.58
+  strong_conflict_threshold: 0.25
+  allow_reduced_size_for_medium_score: true
+  max_conflict_penalty: 0.30
+
 model:
   path: null
   fallback_action_probability: 0.62

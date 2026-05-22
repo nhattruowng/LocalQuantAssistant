@@ -186,6 +186,18 @@ class AdaptiveStrategySettings:
 
 
 @dataclass(frozen=True)
+class ReasoningBrainSettings:
+    """Market reasoning brain settings."""
+
+    enabled: bool = False
+    min_confluence_score: float = 0.68
+    medium_score_threshold: float = 0.58
+    strong_conflict_threshold: float = 0.25
+    allow_reduced_size_for_medium_score: bool = True
+    max_conflict_penalty: float = 0.30
+
+
+@dataclass(frozen=True)
 class SignalSettings:
     """Signal decision settings."""
 
@@ -339,6 +351,7 @@ class Settings:
     feature_toggles: FeatureToggleSettings
     market_regime: MarketRegimeSettings
     adaptive_strategy: AdaptiveStrategySettings
+    reasoning_brain: ReasoningBrainSettings
     model: ModelSettings
     risk: RiskSettings
     safety_filters: SafetyFilterSettings

@@ -9,6 +9,7 @@ from typing import Mapping
 
 from config.settings import Settings
 from regime.market_regime import MarketRegime
+from reasoning.market_reasoning_brain import MarketReasoningBrain, MarketReasoningContext
 from risk.risk_guard import RiskGuard, RiskGuardContext
 from risk.risk_manager import RiskManager
 from risk.safety_filters import SafetyFilterEngine
@@ -60,6 +61,7 @@ class SignalEngine:
         self._risk_guard_context = risk_guard_context
         self._strategy_memory = strategy_memory
         self._logger = logger or logging.getLogger("localquant.signal")
+        self._market_reasoning_brain = MarketReasoningBrain(settings.reasoning_brain)
         self._strategies: dict[str, Strategy] = {
             MarketRegime.UPTREND.value: TrendFollowingStrategy(settings.signal),
             MarketRegime.DOWNTREND.value: TrendFollowingStrategy(settings.signal),
@@ -250,6 +252,10 @@ class SignalEngine:
             self._settings.adaptive_strategy.enabled
             or self._settings.market_regime.adaptive_strategy_enabled
         )
+
+    def _reasoning_brain_enabled(self) -> bool:
+        """Return True when market reasoning brain is enabled."""
+        return bool(self._settings.reasoning_brain.enabled)
 
     def _adaptive_decision(
         self,
@@ -658,6 +664,11 @@ class SignalEngine:
     ) -> dict[str, object]:
         """Build the structured explanation payload returned as explanation_v2."""
         probabilities = _probability_values(context.probabilities) or {}
+        reasoning = (
+            diagnostics.get("reasoning_decision")
+            if diagnostics and isinstance(diagnostics.get("reasoning_decision"), dict)
+            else None
+        )
         selected_strategy = (
             diagnostics.get("selected_strategy")
             if diagnostics and isinstance(diagnostics.get("selected_strategy"), dict)
@@ -728,6 +739,11 @@ class SignalEngine:
                 "decision_warnings": (diagnostics or {}).get("decision_warnings", []),
                 "why_wait": (diagnostics or {}).get("why_wait"),
                 "wait_reason": (diagnostics or {}).get("wait_reason"),
+                "setup_type": reasoning.get("setup_type") if reasoning else None,
+                "confluence_score": reasoning.get("confluence_score") if reasoning else None,
+                "evidence_for": reasoning.get("evidence_for", []) if reasoning else [],
+                "evidence_against": reasoning.get("evidence_against", []) if reasoning else [],
+                "conflict_level": reasoning.get("conflict_level") if reasoning else None,
                 "passed_conditions": list(passed_conditions),
                 "failed_conditions": list(failed_conditions),
                 "rejected_strategies": (diagnostics or {}).get("rejected_strategies", []),
@@ -808,6 +824,39 @@ class SignalEngine:
             **(diagnostics or {}),
             "multi_timeframe": mtf["explanation"],
         }
+        if self._reasoning_brain_enabled():
+            reasoning = self._market_reasoning_brain.decide(
+                self._reasoning_context(
+                    context=context,
+                    decision=decision,
+                    risk_plan=risk_plan,
+                    diagnostics=diagnostics_with_mtf,
+                    model_selection=model_selection,
+                )
+            )
+            diagnostics_with_mtf["reasoning_decision"] = reasoning.to_dict()
+            if reasoning.final_signal is SignalType.WAIT:
+                wait_reasons = [
+                    *reasons,
+                    f"Reasoning brain setup_type={reasoning.setup_type.value}.",
+                    f"Reasoning confluence score {reasoning.confluence_score:.4f} below actionable threshold.",
+                    *list(reasoning.warnings),
+                ]
+                return self._wait(
+                    context=context,
+                    reasons=wait_reasons,
+                    strategy=decision.strategy,
+                    risk_plan=risk_plan,
+                    diagnostics=diagnostics_with_mtf,
+                    model_selection=model_selection,
+                    mtf_explanation=mtf["explanation"],
+                    wait_reason=reasoning.wait_reason,
+                )
+            confidence = round(min(confidence, reasoning.confidence), 4)
+            risk_plan = self._apply_reasoning_size_multiplier(
+                risk_plan,
+                reasoning.position_size_multiplier,
+            )
         diagnostics_with_mtf["decision_trace"] = self._decision_trace(
             context=context,
             final_signal=decision.signal,
@@ -867,6 +916,62 @@ class SignalEngine:
             model_version=(model_selection or {}).get("model_version"),
             fallback_reason=(model_selection or {}).get("fallback_reason"),
             wait_reason=None,
+            reasoning_decision=(
+                diagnostics_with_mtf.get("reasoning_decision")
+                if self._reasoning_brain_enabled()
+                else None
+            ),
+        )
+
+    def _reasoning_context(
+        self,
+        context: SignalContext,
+        decision: StrategyDecision,
+        risk_plan: RiskPlan,
+        diagnostics: dict[str, object],
+        model_selection: dict[str, str | None] | None,
+    ) -> MarketReasoningContext:
+        """Build market-reasoning context from current strategy/risk state."""
+        return MarketReasoningContext(
+            symbol=context.symbol,
+            timeframe=context.timeframe,
+            market_regime=context.regime_value(),
+            features=context.primary_features or context.features,
+            probabilities=context.probabilities,
+            primary_signal=decision.signal,
+            strategy=decision.strategy,
+            risk_plan=risk_plan,
+            diagnostics=diagnostics,
+            model_version=(model_selection or {}).get("model_version"),
+            risk_guard_failed=bool(diagnostics.get("blocked_by_risk_guard", False)),
+        )
+
+    def _apply_reasoning_size_multiplier(
+        self,
+        risk_plan: RiskPlan,
+        multiplier: float,
+    ) -> RiskPlan:
+        """Apply reasoning-brain size multiplier on top of existing plan."""
+        bounded = max(0.0, min(float(multiplier), 1.0))
+        if bounded >= 0.999:
+            return risk_plan
+        base_size = risk_plan.base_position_size or risk_plan.position_size
+        prior_multiplier = (
+            float(risk_plan.size_multiplier)
+            if risk_plan.size_multiplier is not None
+            else 1.0
+        )
+        combined_multiplier = max(0.0, min(prior_multiplier * bounded, 1.0))
+        final_size = base_size * combined_multiplier
+        return replace(
+            risk_plan,
+            position_size=final_size,
+            final_position_size=final_size,
+            size_multiplier=round(combined_multiplier, 4),
+            risk_notes=[
+                *risk_plan.risk_notes,
+                f"Reasoning brain size multiplier applied: {bounded:.2f}.",
+            ],
         )
 
     def _decision_trace(
@@ -1023,6 +1128,11 @@ class SignalEngine:
             model_version=(model_selection or {}).get("model_version"),
             fallback_reason=(model_selection or {}).get("fallback_reason"),
             wait_reason=reason,
+            reasoning_decision=(
+                diagnostics_payload.get("reasoning_decision")
+                if isinstance(diagnostics_payload.get("reasoning_decision"), dict)
+                else None
+            ),
         )
 
 

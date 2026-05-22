@@ -199,7 +199,7 @@ class ConflictResolver:
         return sum(
             _strength(item)
             for item in evidence
-            if item.direction is direction and item.evidence_type is EvidenceType.SUPPORT
+            if item.direction is direction and item.evidence_type is not EvidenceType.WARNING
         )
 
     def _mtf_strength(

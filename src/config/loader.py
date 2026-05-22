@@ -29,6 +29,7 @@ from config.settings import (
     PaperTradingSettings,
     ModelRegistrySettings,
     MultiTimeframeSettings,
+    ReasoningBrainSettings,
     RegimeSpecificTrainingSettings,
     RiskGuardSettings,
     RiskSettings,
@@ -67,6 +68,9 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
     adaptive_strategy_config = raw_config.get("adaptive_strategy", {})
     if not isinstance(adaptive_strategy_config, dict):
         adaptive_strategy_config = {}
+    reasoning_brain_config = raw_config.get("reasoning_brain", {})
+    if not isinstance(reasoning_brain_config, dict):
+        reasoning_brain_config = {}
     model_config = raw_config.get("model", {})
     risk_config = raw_config.get("risk", {})
     safety_filter_config = raw_config.get("safety_filters", {})
@@ -225,6 +229,27 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
                     "memory_block_after_consecutive_losses",
                     True,
                 )
+            ),
+        ),
+        reasoning_brain=ReasoningBrainSettings(
+            enabled=bool(reasoning_brain_config.get("enabled", False)),
+            min_confluence_score=float(
+                reasoning_brain_config.get("min_confluence_score", 0.68)
+            ),
+            medium_score_threshold=float(
+                reasoning_brain_config.get("medium_score_threshold", 0.58)
+            ),
+            strong_conflict_threshold=float(
+                reasoning_brain_config.get("strong_conflict_threshold", 0.25)
+            ),
+            allow_reduced_size_for_medium_score=bool(
+                reasoning_brain_config.get(
+                    "allow_reduced_size_for_medium_score",
+                    True,
+                )
+            ),
+            max_conflict_penalty=float(
+                reasoning_brain_config.get("max_conflict_penalty", 0.30)
             ),
         ),
         model=ModelSettings(
@@ -723,6 +748,17 @@ def _validate_settings(settings: Settings) -> None:
         raise ValueError("Adaptive strategy memory_max_score_penalty must be between 0 and 1.")
     if adaptive.memory_max_size_penalty < 0 or adaptive.memory_max_size_penalty > 1:
         raise ValueError("Adaptive strategy memory_max_size_penalty must be between 0 and 1.")
+    reasoning = settings.reasoning_brain
+    if reasoning.min_confluence_score < 0 or reasoning.min_confluence_score > 1:
+        raise ValueError("Reasoning brain min_confluence_score must be between 0 and 1.")
+    if reasoning.medium_score_threshold < 0 or reasoning.medium_score_threshold > 1:
+        raise ValueError("Reasoning brain medium_score_threshold must be between 0 and 1.")
+    if reasoning.medium_score_threshold > reasoning.min_confluence_score:
+        raise ValueError("Reasoning brain medium_score_threshold must not exceed min_confluence_score.")
+    if reasoning.strong_conflict_threshold < 0 or reasoning.strong_conflict_threshold > 1:
+        raise ValueError("Reasoning brain strong_conflict_threshold must be between 0 and 1.")
+    if reasoning.max_conflict_penalty < 0 or reasoning.max_conflict_penalty > 1:
+        raise ValueError("Reasoning brain max_conflict_penalty must be between 0 and 1.")
     if settings.risk_guard.max_trades_per_day <= 0:
         raise ValueError("Risk guard max_trades_per_day must be positive.")
     if settings.risk_guard.max_consecutive_losses <= 0:
