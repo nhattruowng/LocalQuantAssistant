@@ -352,12 +352,14 @@
             risk management, backtesting, paper trading và các interface của dự án.
           </p>
           <div class="meta">
-            <span class="tag">Phiên bản tài liệu: 2026-05-19</span>
+            <span class="tag">Phiên bản tài liệu: 2026-05-23</span>
             <span class="tag">Mục tiêu: Research & Decision Support</span>
             <span class="tag">Không auto trade tiền thật</span>
             <span class="tag">Multi-timeframe confirmation</span>
             <span class="tag">Strategy memory feedback</span>
             <span class="tag">Adaptive risk controls</span>
+            <span class="tag">Versioned model registry</span>
+            <span class="tag">Regime-specific models</span>
           </div>
         </section>
 
@@ -385,6 +387,10 @@ SQLite candles table
 Feature Engineering
    ↓
 Market Regime Detector
+   ↓
+Model Registry Selection
+  - Regime-specific champion nếu có
+  - Fallback global champion nếu thiếu hoặc chưa đạt quality
    ↓
 ML Prediction / Rule Probability
    ↓
@@ -420,7 +426,7 @@ Structured Explanation / Notification / Backtest / Paper Trading / UI / API</pre
           <div class="card">
             <h3>Infrastructure Layer</h3>
             <p>
-              SQLite repository, collector, model registry, file output, Telegram API,
+              SQLite repository, collector, versioned model registry, file output, Telegram API,
               Docker, logging và config loader.
             </p>
           </div>
@@ -793,10 +799,113 @@ look ahead tối đa N candle, mặc định 10.</pre>
           BUY/SELL/WAIT.
         </p>
         <ul>
-          <li>Model lưu bằng <code>joblib</code> trong <code>models/</code>.</li>
-          <li>Metadata lưu symbol, timeframe, trained_at, feature_columns, metrics, model_type.</li>
+          <li>Model lưu bằng <code>joblib</code> trong versioned registry dưới <code>models/</code>.</li>
+          <li>Metadata lưu model_id, version, scope, status, symbol, timeframe, feature_columns và metrics.</li>
           <li>Metrics gồm accuracy, precision/recall từng class, confusion matrix, classification report, feature importance.</li>
         </ul>
+
+        <h3>7.4 Probability Calibration</h3>
+        <p>
+          RandomForest/XGBoost có thể trả <code>predict_proba</code> raw quá tự tin. Vì vậy training
+          pipeline hỗ trợ calibration bằng sigmoid/Platt scaling hoặc isotonic trên validation set.
+          SignalEngine có thể dùng calibrated probability nếu config bật, nhưng vẫn giữ raw
+          probabilities trong response để audit.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Metadata</th>
+              <th>Ý nghĩa</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>brier_score_before/after</code></td>
+              <td>Đo chất lượng xác suất trước và sau calibration.</td>
+            </tr>
+            <tr>
+              <td><code>log_loss_before/after</code></td>
+              <td>Đo penalty khi model tự tin sai.</td>
+            </tr>
+            <tr>
+              <td><code>reliability_curve</code></td>
+              <td>Dữ liệu curve để UI/API vẽ raw vs calibrated reliability.</td>
+            </tr>
+            <tr>
+              <td><code>probability_source</code></td>
+              <td><code>calibrated</code> nếu wrapper có calibrator hợp lệ, ngược lại <code>raw</code>.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>7.5 Versioned Model Registry</h3>
+        <p>
+          Registry mới quản lý nhiều version cho cùng symbol/timeframe và tách rõ global model với
+          regime-specific model. Mỗi version có trạng thái <code>candidate</code>,
+          <code>champion</code> hoặc <code>archived</code>.
+        </p>
+        <pre>models/
+  BTC_USDT/
+    15m/
+      global/
+        v001/
+          model.joblib
+          metadata.json
+      regime/
+        UPTREND/
+          v001/
+            model.joblib
+            metadata.json
+        SIDEWAY/
+          v001/
+            model.joblib
+            metadata.json</pre>
+        <p>
+          Khi train, global model luôn được tạo trước. Nếu <code>training.regime_specific.enabled=true</code>,
+          trainer tiếp tục lọc dataset theo <code>market_regime</code> và train model riêng cho regime
+          có đủ sample. Regime thiếu sample sẽ bị skip và ghi vào report.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Trường metadata</th>
+              <th>Mục đích</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>model_id</code>, <code>model_version</code></td>
+              <td>Định danh ổn định cho promote/archive và audit.</td>
+            </tr>
+            <tr>
+              <td><code>model_scope</code>, <code>regime</code></td>
+              <td>Phân biệt <code>global</code> với <code>regime_specific</code>.</td>
+            </tr>
+            <tr>
+              <td><code>label_distribution</code></td>
+              <td>Kiểm tra imbalance của BUY/SELL/WAIT.</td>
+            </tr>
+            <tr>
+              <td><code>validation_metrics</code>, <code>calibration_metrics</code></td>
+              <td>Dùng cho comparison và quality gate.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>7.6 Prediction Model Selection</h3>
+        <pre class="flow">Input row có market_regime
+   ↓
+PredictionService hỏi ModelRegistry
+   ↓
+Nếu regime-specific champion tồn tại và đạt min_validation_accuracy
+   → dùng regime model
+Nếu không
+   → fallback global champion
+   → trả fallback_reason</pre>
+        <p>
+          Response prediction/signal luôn có <code>model_scope_used</code>, <code>model_version</code>
+          và <code>fallback_reason</code> để UI/API biết xác suất đến từ model nào.
+        </p>
 
         <h2 id="signal">8. Signal Engine</h2>
         <p>
@@ -809,12 +918,14 @@ look ahead tối đa N candle, mặc định 10.</pre>
   primary_features, primary_regime
   higher_timeframe_features, higher_timeframe_regimes
   probabilities: BUY / SELL / WAIT
+  raw_probabilities, calibrated_probabilities, probability_source
+  model_scope_used, model_version, fallback_reason
   model_prediction, strategy_scores, risk_plan
 
 Process:
   1. Tạo SignalContext
   2. Chọn strategy bằng mapping cũ hoặc ensemble nếu bật
-  3. Strategy đánh giá rule và model probability
+  3. Strategy đánh giá rule và selected model probability
   4. RiskManager tính entry / SL / TP / R:R / size
   5. Strategy Memory điều chỉnh score / threshold / size nếu có lịch sử gần đây
   6. SafetyFilterEngine kiểm tra mean reversion danger và breakout fakeout
@@ -1748,8 +1859,8 @@ Kiểm tra TP/SL
             </tr>
             <tr>
               <td><code>training</code></td>
-              <td>split ratios, model dir, RF/XGB params</td>
-              <td>ML training pipeline.</td>
+              <td>split ratios, model dir, RF/XGB params, calibration, regime_specific, registry</td>
+              <td>ML training, probability calibration và versioned model registry.</td>
             </tr>
             <tr>
               <td><code>backtest</code></td>
@@ -1776,6 +1887,14 @@ python main.py backtest --symbol BTC/USDT --timeframe 15m</pre>
 
         <h3>18.3 FastAPI</h3>
         <pre>uvicorn src.api.main:app --reload</pre>
+        <p>
+          Model registry endpoints chính:
+        </p>
+        <pre>GET  /api/model/registry
+GET  /api/model/registry/BTC_USDT/15m
+POST /api/model/promote
+POST /api/model/archive
+GET  /api/model/calibration</pre>
 
         <h3>18.4 React Frontend</h3>
         <pre>cd frontend
@@ -1868,7 +1987,12 @@ make docker-down</pre>
   ],
   "risk_notes": [],
   "probability_source": "calibrated",
+  "model_scope_used": "regime_specific",
+  "model_version": "v003",
+  "fallback_reason": null,
   "probabilities": {"BUY": 0.71, "SELL": 0.12, "WAIT": 0.17},
+  "raw_probabilities": {"BUY": 0.67, "SELL": 0.14, "WAIT": 0.19},
+  "calibrated_probabilities": {"BUY": 0.71, "SELL": 0.12, "WAIT": 0.17},
   "explanation_v2": {
     "final_decision": "BUY",
     "summary": "BUY from TREND_FOLLOWING with higher timeframe confirmation.",

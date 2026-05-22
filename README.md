@@ -4,6 +4,8 @@ LocalQuant Assistant là một hệ thống local-first dùng Python để thu t
 
 Dự án được thiết kế như một production-ready MVP: kiến trúc rõ ràng, chạy local, dễ mở rộng thêm data source, model, strategy, dashboard, alert và paper trading trong tương lai.
 
+Tài liệu cập nhật lần cuối: `2026-05-23`.
+
 ## Important Disclaimer
 
 This system is for research and decision support only.
@@ -24,6 +26,7 @@ Mọi tín hiệu từ hệ thống chỉ là gợi ý phân tích. Người dù
 - Soft regime scoring và optional strategy ensemble để giảm phụ thuộc vào mapping cứng regime -> strategy.
 - Strategy Memory Feedback để adaptive agents biết strategy/regime/direction nào đang thắng/thua gần đây.
 - ML-based `BUY` / `SELL` / `WAIT` classification bằng XGBoost nếu có, fallback RandomForest.
+- Versioned model registry với global model, regime-specific model, champion/candidate/archive lifecycle.
 - TP/SL first-touch labeling để tránh label quá đơn giản.
 - Chronological train/validation/test split, hỗ trợ walk-forward validation và purged CV, không shuffle time-series.
 - Risk-aware setup recommendation với entry, stop loss, take profit, risk/reward, dynamic position sizing và safety filters.
