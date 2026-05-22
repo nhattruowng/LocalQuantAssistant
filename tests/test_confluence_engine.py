@@ -20,6 +20,7 @@ def test_confluent_buy_evidence_creates_high_score() -> None:
 
     result = engine.evaluate(evidence)
 
+    assert result.raw_score > 0.7
     assert result.normalized_score > 0.7
     assert len(result.evidence_for) == 4
     assert not result.evidence_against
@@ -95,7 +96,30 @@ def test_confluence_adds_decision_trace_step() -> None:
 
     assert result.normalized_score > 0.0
     assert trace.steps
-    assert trace.steps[-1].step_name == "confluence_score"
+    assert trace.steps[0].step_name == "confluence_score"
+    assert trace.steps[-1].step_name == "conflict_resolution"
+
+
+def test_final_score_applies_conflict_penalty() -> None:
+    result = ConfluenceEngine().evaluate(
+        [
+            _evidence("Model Buy", "model_probability", EvidenceType.SUPPORT, 0.8, 0.9),
+            _evidence(
+                "Price Action Sell",
+                "price_action",
+                EvidenceType.SUPPORT,
+                0.8,
+                0.9,
+                direction=EvidenceDirection.SELL,
+            ),
+        ]
+    )
+
+    assert result.conflict_penalty > 0.0
+    assert result.final_score == pytest.approx(
+        max(0.0, result.raw_score - result.conflict_penalty)
+    )
+    assert result.normalized_score == result.final_score
 
 
 def _evidence(
@@ -104,11 +128,12 @@ def _evidence(
     evidence_type: EvidenceType,
     score: float,
     confidence: float,
+    direction: EvidenceDirection = EvidenceDirection.BUY,
 ) -> Evidence:
     return Evidence(
         name=name,
         source=source,
-        direction=EvidenceDirection.BUY,
+        direction=direction,
         score=score,
         confidence=confidence,
         weight=1.0,
@@ -117,4 +142,3 @@ def _evidence(
         impact_on_score=0.0,
         is_critical=False,
     )
-

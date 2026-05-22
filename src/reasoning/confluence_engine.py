@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
+from reasoning.conflict_resolver import ConflictResolver, ConflictResult
 from reasoning.evidence import Evidence, EvidenceType
 from signals.decision_trace import DecisionTrace
 
@@ -31,9 +32,13 @@ class ConfluenceResult:
     warnings: list[Evidence] = field(default_factory=list)
     score_breakdown: list[dict[str, Any]] = field(default_factory=list)
     normalized_score: float = 0.0
+    final_score: float = 0.0
+    conflict_penalty: float = 0.0
+    conflict_result: ConflictResult | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize result into API-friendly values."""
+        conflict_payload = self.conflict_result.to_dict() if self.conflict_result else None
         return {
             "raw_score": self.raw_score,
             "evidence_for": [item.to_dict() for item in self.evidence_for],
@@ -41,6 +46,9 @@ class ConfluenceResult:
             "warnings": [item.to_dict() for item in self.warnings],
             "score_breakdown": list(self.score_breakdown),
             "normalized_score": self.normalized_score,
+            "final_score": self.final_score,
+            "conflict_penalty": self.conflict_penalty,
+            "conflict_result": conflict_payload,
         }
 
 
@@ -51,12 +59,14 @@ class ConfluenceEngine:
         self,
         source_weights: Mapping[str, float] | None = None,
         empty_score: float = 0.0,
+        conflict_resolver: ConflictResolver | None = None,
     ) -> None:
         merged = dict(DEFAULT_SOURCE_WEIGHTS)
         for key, value in (source_weights or {}).items():
             merged[str(key)] = max(0.0, float(value))
         self._source_weights = merged
         self._empty_score = _clip(empty_score)
+        self._conflict_resolver = conflict_resolver or ConflictResolver()
 
     def evaluate(
         self,
@@ -65,6 +75,7 @@ class ConfluenceEngine:
     ) -> ConfluenceResult:
         """Score evidence confluence and optionally append a trace step."""
         if not evidence:
+            conflict = self._conflict_resolver.evaluate([])
             result = ConfluenceResult(
                 raw_score=self._empty_score,
                 evidence_for=[],
@@ -72,6 +83,9 @@ class ConfluenceEngine:
                 warnings=[],
                 score_breakdown=[],
                 normalized_score=self._empty_score,
+                final_score=self._empty_score,
+                conflict_penalty=0.0,
+                conflict_result=conflict,
             )
             self._append_trace(trace, result)
             return result
@@ -126,13 +140,18 @@ class ConfluenceEngine:
             )
 
         raw_score = _clip(positive - negative + self._empty_score)
+        conflict_result = self._conflict_resolver.evaluate(evidence)
+        final_score = _clip(raw_score - conflict_result.conflict_penalty)
         result = ConfluenceResult(
             raw_score=round(raw_score, 8),
             evidence_for=evidence_for,
             evidence_against=evidence_against,
             warnings=warnings,
             score_breakdown=score_breakdown,
-            normalized_score=round(raw_score, 8),
+            normalized_score=round(final_score, 8),
+            final_score=round(final_score, 8),
+            conflict_penalty=round(conflict_result.conflict_penalty, 8),
+            conflict_result=conflict_result,
         )
         self._append_trace(trace, result)
         return result
@@ -148,6 +167,8 @@ class ConfluenceEngine:
             passed=result.normalized_score >= max(self._empty_score, 0.5),
             details={
                 "raw_score": result.raw_score,
+                "final_score": result.final_score,
+                "conflict_penalty": result.conflict_penalty,
                 "normalized_score": result.normalized_score,
                 "evidence_for_count": len(result.evidence_for),
                 "evidence_against_count": len(result.evidence_against),
@@ -159,6 +180,18 @@ class ConfluenceEngine:
                 for item in result.warnings
             ],
         )
+        if result.conflict_result is None:
+            return
+        trace.add_step(
+            step_name="conflict_resolution",
+            input_score=result.raw_score,
+            output_score=result.final_score,
+            passed=result.conflict_result.recommended_action.value != "WAIT",
+            details=result.conflict_result.to_dict(),
+            warnings=list(result.conflict_result.conflict_reasons),
+        )
+        if result.conflict_result.recommended_action.value == "WAIT":
+            trace.add_warning("Conflict resolver recommends WAIT.")
 
 
 def _canonical_source(source: str) -> str:
@@ -186,4 +219,3 @@ def _canonical_source(source: str) -> str:
 
 def _clip(value: float) -> float:
     return max(0.0, min(float(value), 1.0))
-
