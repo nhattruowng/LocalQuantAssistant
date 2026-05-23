@@ -229,6 +229,7 @@ class AdaptiveDecision:
     size_multiplier: float
     conflict_result: DecisionConflictResult
     memory_adjustments: list["MemoryAdjustment"] = field(default_factory=list)
+    wait_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -284,6 +285,8 @@ class TradeSetup:
     risk_adjustments: list[dict[str, object]] = field(default_factory=list)
     safety_filters: list[dict[str, object]] = field(default_factory=list)
     blocked_by_risk_guard: bool = False
+    wait_reason: str | None = None
+    reasoning_decision: dict[str, object] | None = None
 
     def to_dict(self) -> dict[str, object]:
         """Serialize setup into API-friendly primitive values."""

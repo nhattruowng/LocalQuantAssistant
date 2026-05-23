@@ -5,6 +5,7 @@ import {
   getCandles,
   getHealth,
   getModelCalibration,
+  getModelDrift,
   getModelInfo,
   getRiskStatus,
   getSignalHistory,
@@ -51,6 +52,15 @@ export function useModelCalibrationQuery() {
   return useQuery({
     queryKey: ["model-calibration", symbol, timeframe],
     queryFn: () => getModelCalibration(symbol, timeframe),
+    retry: false,
+  });
+}
+
+export function useModelDriftQuery(recentWindow = 200) {
+  const { symbol, timeframe } = useAppSettings();
+  return useQuery({
+    queryKey: ["model-drift", symbol, timeframe, recentWindow],
+    queryFn: () => getModelDrift(symbol, timeframe, recentWindow),
     retry: false,
   });
 }

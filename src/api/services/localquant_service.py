@@ -22,6 +22,7 @@ from database.connection import create_database
 from features.feature_service import FeatureService
 from ml.model_registry import ModelRegistry
 from ml.model_trainer import ModelTrainer
+from ml.monitoring.model_monitor import ModelMonitor
 from paper.paper_trading_engine import PaperTradingEngine
 from risk.risk_guard import RiskGuard, RiskGuardContext
 from strategy.memory import StrategyMemoryStore
@@ -272,6 +273,57 @@ class LocalQuantApiService:
             }
         )
 
+    def model_drift(
+        self,
+        symbol: str,
+        timeframe: str,
+        recent_window: int = 200,
+    ) -> dict[str, object] | None:
+        """Build a drift report from feature history and current model metadata."""
+        metadata = self.latest_model_metadata(symbol, timeframe)
+        if metadata is None:
+            return None
+        feature_service = self._feature_service()
+        features = feature_service.build_features(
+            symbol=symbol,
+            timeframe=timeframe,
+            drop_warmup_rows=False,
+        )
+        if features.empty:
+            recent_rows: list[dict[str, object]] = []
+            baseline_rows: list[dict[str, object]] = []
+        else:
+            data = features.sort_values("timestamp").reset_index(drop=True)
+            recent_count = max(20, int(recent_window))
+            recent = data.tail(recent_count)
+            baseline = data.iloc[:-len(recent)] if len(data) > len(recent) else data.head(max(20, len(data) // 2))
+            baseline_rows = baseline.to_dict("records")
+            recent_rows = recent.to_dict("records")
+
+        feature_columns = metadata.get("feature_columns", [])
+        selected_baseline = _pick_features(baseline_rows, feature_columns)
+        selected_recent = _pick_features(recent_rows, feature_columns)
+        monitor = ModelMonitor()
+        report = monitor.build_report(
+            train_feature_rows=selected_baseline,
+            recent_feature_rows=selected_recent,
+            baseline_predictions=[],
+            recent_predictions=[],
+            baseline_calibration=[],
+            recent_calibration=[],
+            baseline_regime_counts=_regime_counts(baseline_rows),
+            recent_regime_counts=_regime_counts(recent_rows),
+        )
+        return _json_safe(
+            {
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "model_id": metadata.get("model_id"),
+                "model_version": metadata.get("model_version"),
+                "report": report.to_dict(),
+            }
+        )
+
     def train_model(self, symbol: str, timeframe: str) -> dict[str, object]:
         """Train a local model and return result metadata."""
         feature_service = self._feature_service()
@@ -383,6 +435,27 @@ def _json_safe(value: Any) -> Any:
     if isinstance(value, list):
         return [_json_safe(item) for item in value]
     return value
+
+
+def _pick_features(
+    rows: list[dict[str, object]],
+    feature_columns: object,
+) -> list[dict[str, object]]:
+    columns = [str(item) for item in feature_columns] if isinstance(feature_columns, list) else []
+    if not columns:
+        return rows
+    selected: list[dict[str, object]] = []
+    for row in rows:
+        selected.append({column: row.get(column) for column in columns if column in row})
+    return selected
+
+
+def _regime_counts(rows: list[dict[str, object]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        regime = str(row.get("market_regime", "UNKNOWN")).upper()
+        counts[regime] = counts.get(regime, 0) + 1
+    return counts
 
 
 def _now_utc() -> datetime:

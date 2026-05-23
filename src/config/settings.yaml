@@ -65,6 +65,14 @@ adaptive_strategy:
   memory_max_size_penalty: 0.50
   memory_block_after_consecutive_losses: true
 
+reasoning_brain:
+  enabled: false
+  min_confluence_score: 0.68
+  medium_score_threshold: 0.58
+  strong_conflict_threshold: 0.25
+  allow_reduced_size_for_medium_score: true
+  max_conflict_penalty: 0.30
+
 model:
   path: null
   fallback_action_probability: 0.62
@@ -154,7 +162,9 @@ training:
     n_splits: 5
     train_window_bars: 500
     validation_window_bars: 100
+    test_window_bars: 0
     expanding_window: true
+    purge_size: 0
     embargo_size: 0
   calibration:
     enabled: true
@@ -184,6 +194,12 @@ backtest:
     max_slippage_rate: 0.01
     volatility_multiplier: 10.0
     estimated_spread_rate: 0.0005
+    atr_factor: 1.0
+    low_volume_threshold: 0.7
+    low_volume_multiplier: 1.4
+    high_vol_multiplier: 1.6
+    extreme_vol_multiplier: 2.3
+    high_slippage_multiplier: 2.0
   output_dir: data/backtest
 
 notification:

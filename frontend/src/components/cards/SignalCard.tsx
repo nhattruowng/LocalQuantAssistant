@@ -29,6 +29,8 @@ export function SignalCard({ setup }: SignalCardProps) {
         <strong>{setup.probability_source ?? "raw"}</strong>
         <span>Model</span>
         <strong>{setup.model_scope_used ? `${setup.model_scope_used} ${setup.model_version ?? ""}` : "-"}</strong>
+        <span>Wait Reason</span>
+        <strong>{setup.signal === "WAIT" ? (setup.wait_reason ?? "-") : "-"}</strong>
       </div>
     </section>
   );

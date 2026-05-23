@@ -38,6 +38,24 @@ def model_calibration(
     return metadata
 
 
+@router.get("/drift")
+def model_drift(
+    symbol: str = Query(...),
+    timeframe: str = Query(...),
+    recent_window: int = Query(default=200, ge=20, le=5000),
+    service: LocalQuantApiService = Depends(get_service),
+) -> dict[str, object]:
+    """Return drift report for a model and recent market data window."""
+    report = service.model_drift(
+        symbol=symbol,
+        timeframe=timeframe,
+        recent_window=recent_window,
+    )
+    if report is None:
+        raise HTTPException(status_code=404, detail="No model found.")
+    return report
+
+
 @router.get("/registry")
 def model_registry(
     service: LocalQuantApiService = Depends(get_service),

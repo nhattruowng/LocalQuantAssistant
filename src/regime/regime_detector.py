@@ -81,7 +81,11 @@ class MarketRegimeDetector:
         df["regime_uncertainty_score"] = [
             result.uncertainty_score for result in soft_results
         ]
-        df["transition_warning"] = [result.transition_warning for result in soft_results]
+        df["transition_warning"] = pd.Series(
+            [bool(result.transition_warning) for result in soft_results],
+            index=df.index,
+            dtype="object",
+        )
         df["volatility_level"] = [
             result.volatility_level.value for result in soft_results
         ]

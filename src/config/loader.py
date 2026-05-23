@@ -29,6 +29,7 @@ from config.settings import (
     PaperTradingSettings,
     ModelRegistrySettings,
     MultiTimeframeSettings,
+    ReasoningBrainSettings,
     RegimeSpecificTrainingSettings,
     RiskGuardSettings,
     RiskSettings,
@@ -67,6 +68,9 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
     adaptive_strategy_config = raw_config.get("adaptive_strategy", {})
     if not isinstance(adaptive_strategy_config, dict):
         adaptive_strategy_config = {}
+    reasoning_brain_config = raw_config.get("reasoning_brain", {})
+    if not isinstance(reasoning_brain_config, dict):
+        reasoning_brain_config = {}
     model_config = raw_config.get("model", {})
     risk_config = raw_config.get("risk", {})
     safety_filter_config = raw_config.get("safety_filters", {})
@@ -225,6 +229,27 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
                     "memory_block_after_consecutive_losses",
                     True,
                 )
+            ),
+        ),
+        reasoning_brain=ReasoningBrainSettings(
+            enabled=bool(reasoning_brain_config.get("enabled", False)),
+            min_confluence_score=float(
+                reasoning_brain_config.get("min_confluence_score", 0.68)
+            ),
+            medium_score_threshold=float(
+                reasoning_brain_config.get("medium_score_threshold", 0.58)
+            ),
+            strong_conflict_threshold=float(
+                reasoning_brain_config.get("strong_conflict_threshold", 0.25)
+            ),
+            allow_reduced_size_for_medium_score=bool(
+                reasoning_brain_config.get(
+                    "allow_reduced_size_for_medium_score",
+                    True,
+                )
+            ),
+            max_conflict_penalty=float(
+                reasoning_brain_config.get("max_conflict_penalty", 0.30)
             ),
         ),
         model=ModelSettings(
@@ -411,9 +436,13 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
                 validation_window_bars=int(
                     training_validation_config.get("validation_window_bars", 100)
                 ),
+                test_window_bars=int(
+                    training_validation_config.get("test_window_bars", 0)
+                ),
                 expanding_window=bool(
                     training_validation_config.get("expanding_window", True)
                 ),
+                purge_size=int(training_validation_config.get("purge_size", 0)),
                 embargo_size=int(training_validation_config.get("embargo_size", 0)),
             ),
             calibration=TrainingCalibrationSettings(
@@ -492,6 +521,22 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
                             backtest_config.get("slippage_rate", 0.0005),
                         ),
                     )
+                ),
+                atr_factor=float(execution_cost_config.get("atr_factor", 1.0)),
+                low_volume_threshold=float(
+                    execution_cost_config.get("low_volume_threshold", 0.7)
+                ),
+                low_volume_multiplier=float(
+                    execution_cost_config.get("low_volume_multiplier", 1.4)
+                ),
+                high_vol_multiplier=float(
+                    execution_cost_config.get("high_vol_multiplier", 1.6)
+                ),
+                extreme_vol_multiplier=float(
+                    execution_cost_config.get("extreme_vol_multiplier", 2.3)
+                ),
+                high_slippage_multiplier=float(
+                    execution_cost_config.get("high_slippage_multiplier", 2.0)
                 ),
             ),
         ),
@@ -644,14 +689,18 @@ def _validate_settings(settings: Settings) -> None:
         raise ValueError("Training and validation ratios must be positive.")
     if settings.training.test_ratio <= 0:
         raise ValueError("Test ratio must be positive.")
-    if settings.training.validation.method not in {"time_split", "walk_forward"}:
-        raise ValueError("Training validation method must be time_split or walk_forward.")
+    if settings.training.validation.method not in {"time_split", "walk_forward", "purged_cv"}:
+        raise ValueError("Training validation method must be time_split, walk_forward, or purged_cv.")
     if settings.training.validation.n_splits <= 0:
         raise ValueError("Training validation n_splits must be positive.")
     if settings.training.validation.train_window_bars <= 0:
         raise ValueError("Training validation train_window_bars must be positive.")
     if settings.training.validation.validation_window_bars <= 0:
         raise ValueError("Training validation validation_window_bars must be positive.")
+    if settings.training.validation.test_window_bars < 0:
+        raise ValueError("Training validation test_window_bars must be non-negative.")
+    if settings.training.validation.purge_size < 0:
+        raise ValueError("Training validation purge_size must be non-negative.")
     if settings.training.validation.embargo_size < 0:
         raise ValueError("Training validation embargo_size must be non-negative.")
     if settings.training.calibration.method not in {"none", "sigmoid", "isotonic"}:
@@ -671,7 +720,11 @@ def _validate_settings(settings: Settings) -> None:
     if settings.backtest.execution_cost is None:
         raise ValueError("Backtest execution_cost settings must be present.")
     if settings.backtest.execution_cost.model not in {
+        "zero_slippage_baseline",
         "fixed",
+        "dynamic",
+        "high_slippage",
+        "normal",
         "volatility_adjusted",
         "spread_aware",
         "stress",
@@ -685,6 +738,18 @@ def _validate_settings(settings: Settings) -> None:
         raise ValueError("Backtest execution cost rates must be non-negative.")
     if settings.backtest.execution_cost.stress_multiplier < 0:
         raise ValueError("Backtest stress_multiplier must be non-negative.")
+    if settings.backtest.execution_cost.atr_factor < 0:
+        raise ValueError("Backtest atr_factor must be non-negative.")
+    if settings.backtest.execution_cost.low_volume_threshold < 0:
+        raise ValueError("Backtest low_volume_threshold must be non-negative.")
+    if settings.backtest.execution_cost.low_volume_multiplier < 0:
+        raise ValueError("Backtest low_volume_multiplier must be non-negative.")
+    if settings.backtest.execution_cost.high_vol_multiplier < 0:
+        raise ValueError("Backtest high_vol_multiplier must be non-negative.")
+    if settings.backtest.execution_cost.extreme_vol_multiplier < 0:
+        raise ValueError("Backtest extreme_vol_multiplier must be non-negative.")
+    if settings.backtest.execution_cost.high_slippage_multiplier < 0:
+        raise ValueError("Backtest high_slippage_multiplier must be non-negative.")
     if settings.backtest.max_holding_bars <= 0:
         raise ValueError("Backtest max_holding_bars must be positive.")
     if not (
@@ -723,6 +788,17 @@ def _validate_settings(settings: Settings) -> None:
         raise ValueError("Adaptive strategy memory_max_score_penalty must be between 0 and 1.")
     if adaptive.memory_max_size_penalty < 0 or adaptive.memory_max_size_penalty > 1:
         raise ValueError("Adaptive strategy memory_max_size_penalty must be between 0 and 1.")
+    reasoning = settings.reasoning_brain
+    if reasoning.min_confluence_score < 0 or reasoning.min_confluence_score > 1:
+        raise ValueError("Reasoning brain min_confluence_score must be between 0 and 1.")
+    if reasoning.medium_score_threshold < 0 or reasoning.medium_score_threshold > 1:
+        raise ValueError("Reasoning brain medium_score_threshold must be between 0 and 1.")
+    if reasoning.medium_score_threshold > reasoning.min_confluence_score:
+        raise ValueError("Reasoning brain medium_score_threshold must not exceed min_confluence_score.")
+    if reasoning.strong_conflict_threshold < 0 or reasoning.strong_conflict_threshold > 1:
+        raise ValueError("Reasoning brain strong_conflict_threshold must be between 0 and 1.")
+    if reasoning.max_conflict_penalty < 0 or reasoning.max_conflict_penalty > 1:
+        raise ValueError("Reasoning brain max_conflict_penalty must be between 0 and 1.")
     if settings.risk_guard.max_trades_per_day <= 0:
         raise ValueError("Risk guard max_trades_per_day must be positive.")
     if settings.risk_guard.max_consecutive_losses <= 0:

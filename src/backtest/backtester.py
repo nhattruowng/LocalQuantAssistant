@@ -332,7 +332,13 @@ class Backtester:
             signal=setup.signal,
             row=signal_row.to_dict(),
         )
-        position_size = float(setup.position_size or 0.0)
+        # Backtest PnL uses the base planned size so execution-cost tests remain
+        # comparable even when dynamic sizing diagnostics are attached.
+        position_size = float(
+            setup.base_position_size
+            if setup.base_position_size is not None
+            else (setup.position_size or 0.0)
+        )
         exit_simulation = self._find_exit(data, signal_index, setup)
         exit_row = data.iloc[exit_simulation.close_index]
 
@@ -385,6 +391,14 @@ class Backtester:
                 ),
                 atr_percent=float(data.iloc[signal_index].get("atr_percent", 0.0)),
                 holding_bars=exit_simulation.close_index - signal_index,
+                setup_type=_setup_type(setup),
+                setup_grade=_setup_grade(setup),
+                wait_reason=setup.wait_reason or "NONE",
+                safety_filter=_safety_filter_label(setup),
+                model_scope=setup.model_scope_used or "UNKNOWN",
+                probability_source=setup.probability_source or "raw",
+                conflict_level=_conflict_level(setup),
+                confluence_score=_confluence_score(setup),
             ),
             exit_simulation.close_index,
         )
@@ -483,3 +497,65 @@ def _timeout_result(pnl: float) -> TradeResult:
     if pnl < 0:
         return TradeResult.LOSS
     return TradeResult.BREAKEVEN
+
+
+def _setup_type(setup: TradeSetup) -> str:
+    reasoning = setup.reasoning_decision if isinstance(setup.reasoning_decision, dict) else {}
+    if reasoning.get("setup_type"):
+        return str(reasoning["setup_type"])
+    strategy = setup.explanation_v2.get("strategy") if isinstance(setup.explanation_v2, dict) else {}
+    if isinstance(strategy, dict) and strategy.get("setup_type"):
+        return str(strategy["setup_type"])
+    return "UNKNOWN"
+
+
+def _setup_grade(setup: TradeSetup) -> str:
+    strategy = setup.explanation_v2.get("strategy") if isinstance(setup.explanation_v2, dict) else {}
+    if isinstance(strategy, dict) and strategy.get("setup_quality"):
+        return str(strategy["setup_quality"])
+    diagnostics = setup.strategy_diagnostics if isinstance(setup.strategy_diagnostics, dict) else {}
+    if diagnostics.get("setup_quality"):
+        return str(diagnostics["setup_quality"])
+    return "UNKNOWN"
+
+
+def _safety_filter_label(setup: TradeSetup) -> str:
+    filters = setup.safety_filters or []
+    labels: list[str] = []
+    for item in filters:
+        if isinstance(item, dict):
+            name = item.get("name") or item.get("filter") or item.get("type")
+            if name:
+                labels.append(str(name))
+    if not labels:
+        return "NONE"
+    return "|".join(sorted(set(labels)))
+
+
+def _conflict_level(setup: TradeSetup) -> str:
+    reasoning = setup.reasoning_decision if isinstance(setup.reasoning_decision, dict) else {}
+    value = reasoning.get("conflict_level")
+    if value:
+        return str(value)
+    strategy = setup.explanation_v2.get("strategy") if isinstance(setup.explanation_v2, dict) else {}
+    if isinstance(strategy, dict):
+        conflict = strategy.get("conflict_result")
+        if isinstance(conflict, dict) and conflict.get("has_conflict"):
+            return "MEDIUM"
+    return "NONE"
+
+
+def _confluence_score(setup: TradeSetup) -> float:
+    reasoning = setup.reasoning_decision if isinstance(setup.reasoning_decision, dict) else {}
+    try:
+        if "confluence_score" in reasoning:
+            return float(reasoning["confluence_score"])
+    except (TypeError, ValueError):
+        pass
+    strategy = setup.explanation_v2.get("strategy") if isinstance(setup.explanation_v2, dict) else {}
+    try:
+        if isinstance(strategy, dict) and "confluence_score" in strategy:
+            return float(strategy["confluence_score"])
+    except (TypeError, ValueError):
+        pass
+    return 0.0

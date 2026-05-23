@@ -4,9 +4,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-import pandas as pd
+import pytest
+
+pd = pytest.importorskip("pandas")
+
+from dataclasses import replace
 
 from config.settings import TrainingValidationSettings
+from ml.model_trainer import ModelTrainer
 from ml.validation.purged_cv import PurgedTimeSeriesSplit, apply_purge_and_embargo
 from ml.validation.walk_forward import WalkForwardValidator
 
@@ -18,7 +23,9 @@ def test_walk_forward_creates_expected_number_of_folds():
             n_splits=3,
             train_window_bars=10,
             validation_window_bars=5,
+            test_window_bars=0,
             expanding_window=True,
+            purge_size=0,
         ),
         purge_size=2,
     )
@@ -35,7 +42,9 @@ def test_walk_forward_folds_do_not_overlap_after_purge():
             n_splits=2,
             train_window_bars=10,
             validation_window_bars=5,
+            test_window_bars=0,
             expanding_window=True,
+            purge_size=0,
         ),
         purge_size=2,
     )
@@ -77,9 +86,12 @@ def test_embargo_removes_train_rows_after_validation_boundary():
     assert 18 in fold.train_indices
 
 
-def test_purged_cv_splits_train_on_both_sides_without_overlap():
+def test_purged_cv_splits_use_past_only_train_without_overlap():
     folds = PurgedTimeSeriesSplit(
         n_splits=2,
+        validation_window_bars=5,
+        train_window_bars=12,
+        test_window_bars=0,
         purge_size=2,
         embargo_size=1,
     ).split(_dataset(30))
@@ -91,7 +103,29 @@ def test_purged_cv_splits_train_on_both_sides_without_overlap():
         assert train.isdisjoint(validation)
         assert fold.validation_start - 1 not in train
         assert fold.validation_start - 2 not in train
-        assert fold.validation_end not in train
+        assert max(train) < min(validation)
+        assert list(train) == sorted(train)
+        assert list(validation) == sorted(validation)
+
+
+def test_walk_forward_with_test_window_creates_test_indices():
+    validator = WalkForwardValidator(
+        settings=TrainingValidationSettings(
+            method="walk_forward",
+            n_splits=2,
+            train_window_bars=10,
+            validation_window_bars=4,
+            test_window_bars=3,
+            expanding_window=False,
+            purge_size=1,
+            embargo_size=0,
+        ),
+        purge_size=1,
+    )
+    split = validator.split(_dataset(30))
+
+    assert split.folds[0].test_indices == [14, 15, 16]
+    assert split.folds[1].test_indices == [21, 22, 23]
 
 
 def test_validation_timestamps_are_after_train_timestamps():
@@ -101,7 +135,9 @@ def test_validation_timestamps_are_after_train_timestamps():
             n_splits=3,
             train_window_bars=10,
             validation_window_bars=5,
+            test_window_bars=0,
             expanding_window=False,
+            purge_size=0,
         ),
         purge_size=1,
     )
@@ -113,6 +149,48 @@ def test_validation_timestamps_are_after_train_timestamps():
         train_end = data.iloc[max(fold.train_indices)]["timestamp"]
         validation_start = data.iloc[min(fold.validation_indices)]["timestamp"]
         assert validation_start > train_end
+
+
+def test_fold_metadata_contains_purge_and_embargo():
+    data = _dataset(25)
+    fold = PurgedTimeSeriesSplit(
+        n_splits=1,
+        validation_window_bars=5,
+        train_window_bars=12,
+        purge_size=3,
+        embargo_size=2,
+    ).split(data)[0]
+    metadata = fold.to_metadata(data)
+
+    assert metadata["purge_size"] == 3
+    assert metadata["embargo_size"] == 2
+    assert metadata["validation_start_index"] is not None
+
+
+def test_model_trainer_validation_metadata_for_purged_cv(settings):
+    trainer = ModelTrainer(
+        settings=replace(
+            settings,
+            training=replace(
+                settings.training,
+                validation=replace(
+                    settings.training.validation,
+                    method="purged_cv",
+                    purge_size=7,
+                    embargo_size=3,
+                    test_window_bars=5,
+                ),
+            ),
+        )
+    )
+    metadata = trainer._validation_metadata(_dataset(40))
+
+    assert metadata["validation_method"] == "purged_cv"
+    assert metadata["purge_size"] == 7
+    assert metadata["embargo_size"] == 3
+    assert metadata["validation_test_window_bars"] == 5
+    assert metadata["dataset_start"] is not None
+    assert metadata["dataset_end"] is not None
 
 
 def _dataset(rows: int) -> pd.DataFrame:

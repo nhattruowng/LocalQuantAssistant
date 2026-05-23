@@ -1,21 +1,55 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/forms/Button";
 import { MetricCard } from "@/components/cards/MetricCard";
 import { SignalCard } from "@/components/cards/SignalCard";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { useActions } from "@/hooks/useApiQueries";
 import { formatNumber, formatPercent } from "@/lib/utils";
-import type { TradeSetup } from "@/types";
+import type {
+  DecisionStepPayload,
+  DecisionTracePayload,
+  ReasoningDecisionPayload,
+  ReasoningEvidencePayload,
+  TradeSetup,
+} from "@/types";
 
 interface SignalPageProps {
   latestSignal?: TradeSetup | null;
   onSignalGenerated: (setup: TradeSetup) => void;
 }
 
+function extractTrace(setup?: TradeSetup | null): DecisionTracePayload | null {
+  const reasoning = setup?.reasoning_decision as ReasoningDecisionPayload | null | undefined;
+  const fromReasoning = reasoning?.decision_trace;
+  if (fromReasoning && typeof fromReasoning === "object" && "steps" in fromReasoning) {
+    return fromReasoning as DecisionTracePayload;
+  }
+  const diagnostics = setup?.strategy_diagnostics;
+  if (diagnostics && typeof diagnostics === "object") {
+    const candidate = (diagnostics as Record<string, unknown>).decision_trace;
+    if (candidate && typeof candidate === "object" && "steps" in candidate) {
+      return candidate as DecisionTracePayload;
+    }
+  }
+  return null;
+}
+
+function topEvidence(evidence: ReasoningEvidencePayload[] | undefined, count = 5) {
+  if (!Array.isArray(evidence)) return [];
+  return [...evidence]
+    .sort((left, right) => Math.abs(Number(right.impact_on_score ?? right.score ?? 0)) - Math.abs(Number(left.impact_on_score ?? left.score ?? 0)))
+    .slice(0, count);
+}
+
 export function SignalPage({ latestSignal, onSignalGenerated }: SignalPageProps) {
   const actions = useActions();
   const [multiTimeframe, setMultiTimeframe] = useState(true);
   const explanation = latestSignal?.explanation_v2;
+  const reasoning = (latestSignal?.reasoning_decision as ReasoningDecisionPayload | null | undefined) ?? null;
+  const trace = useMemo(() => extractTrace(latestSignal), [latestSignal]);
+  const traceSteps = Array.isArray(trace?.steps) ? trace.steps : [];
+  const evidenceFor = topEvidence(reasoning?.evidence_for);
+  const evidenceAgainst = topEvidence(reasoning?.evidence_against);
 
   const generate = async () => {
     const setup = await actions.generateSignal.mutateAsync(multiTimeframe);
@@ -26,7 +60,7 @@ export function SignalPage({ latestSignal, onSignalGenerated }: SignalPageProps)
     <div>
       <PageHeader
         title="Signal"
-        description="Risk-aware BUY / SELL / WAIT recommendation with reasons and levels."
+        description="Signal output with reasoning, evidence conflict, and decision trace."
         actions={
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -38,140 +72,120 @@ export function SignalPage({ latestSignal, onSignalGenerated }: SignalPageProps)
               />
               Multi-timeframe
             </label>
-            <Button onClick={generate} disabled={actions.generateSignal.isPending}>Generate Signal</Button>
+            <Button onClick={generate} disabled={actions.generateSignal.isPending}>
+              {actions.generateSignal.isPending ? "Generating..." : "Generate Signal"}
+            </Button>
           </div>
         }
       />
+      {actions.generateSignal.isError ? (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          Unable to generate signal. Please verify data and try again.
+        </div>
+      ) : null}
       <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
         <SignalCard setup={latestSignal} />
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <MetricCard label="Final Signal" value={reasoning?.final_signal ?? latestSignal?.signal ?? "-"} />
+          <MetricCard label="Setup Type" value={reasoning?.setup_type ?? explanation?.strategy?.setup_type ?? "-"} />
+          <MetricCard label="Confluence Score" value={formatNumber(reasoning?.confluence_score ?? explanation?.strategy?.confluence_score ?? null, 4)} />
+          <MetricCard label="Confidence" value={formatPercent(reasoning?.confidence ?? latestSignal?.confidence)} />
+          <MetricCard label="Wait Reason" value={latestSignal?.signal === "WAIT" ? (reasoning?.wait_reason ?? latestSignal?.wait_reason ?? "-") : "-"} />
+          <MetricCard label="Position Size Multiplier" value={formatNumber(reasoning?.position_size_multiplier ?? latestSignal?.size_multiplier ?? null, 4)} />
+          <MetricCard label="Conflict Level" value={reasoning?.conflict_level ?? explanation?.strategy?.conflict_level ?? "-"} />
+          <MetricCard label="Risk/Reward" value={formatNumber(latestSignal?.risk_reward, 2)} />
           <MetricCard label="Entry" value={formatNumber(latestSignal?.entry, 4)} />
           <MetricCard label="Stop Loss" value={formatNumber(latestSignal?.stop_loss, 4)} />
           <MetricCard label="Take Profit 1" value={formatNumber(latestSignal?.take_profit_1, 4)} />
           <MetricCard label="Take Profit 2" value={formatNumber(latestSignal?.take_profit_2, 4)} />
-          <MetricCard label="Position Size" value={formatNumber(latestSignal?.position_size, 6)} />
-          <MetricCard label="Risk/Reward" value={formatNumber(latestSignal?.risk_reward, 2)} />
-          <MetricCard label="Probability Source" value={latestSignal?.probability_source ?? "-"} />
-          <MetricCard label="BUY %" value={formatPercent((latestSignal?.calibrated_probabilities ?? latestSignal?.raw_probabilities ?? latestSignal?.probabilities)?.BUY ?? (latestSignal?.signal === "BUY" ? latestSignal.confidence : undefined))} />
-          <MetricCard label="SELL %" value={formatPercent((latestSignal?.calibrated_probabilities ?? latestSignal?.raw_probabilities ?? latestSignal?.probabilities)?.SELL ?? (latestSignal?.signal === "SELL" ? latestSignal.confidence : undefined))} />
-          <MetricCard label="WAIT %" value={formatPercent((latestSignal?.calibrated_probabilities ?? latestSignal?.raw_probabilities ?? latestSignal?.probabilities)?.WAIT ?? (latestSignal?.signal === "WAIT" ? latestSignal.confidence : undefined))} />
-          <MetricCard label="Regime" value={latestSignal?.market_regime ?? "-"} />
-          <MetricCard label="Fallback" value={latestSignal?.fallback_reason ?? "-"} />
-          <MetricCard label="Selected Strategy" value={explanation?.strategy?.selected ?? latestSignal?.strategy ?? "-"} />
-          <MetricCard label="MTF" value={explanation?.multi_timeframe?.enabled ? "Enabled" : "Disabled"} />
-          <MetricCard label="Regime Uncertainty" value={formatPercent(explanation?.regime?.uncertainty_score)} />
-          <MetricCard label="Volatility" value={explanation?.regime?.volatility_level ?? "-"} />
         </div>
       </div>
-      {explanation ? (
-        <section className="mt-4 rounded-lg border border-border bg-white p-4">
-          <h3 className="mb-2 font-semibold">Decision Summary</h3>
-          <p className="text-sm text-muted-foreground">{explanation.final_decision_summary || explanation.summary}</p>
-          <div className="mt-4 grid gap-4 xl:grid-cols-3">
-            <div>
-              <h4 className="mb-2 text-sm font-medium">Higher Timeframes</h4>
-              {explanation.multi_timeframe?.confirmations?.length ? (
-                <div className="space-y-2 text-sm text-muted-foreground">
-                  {explanation.multi_timeframe.confirmations.map((item) => (
-                    <div key={`${item.timeframe}-${item.regime}`} className="rounded-md border border-border p-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <span>{item.timeframe}</span>
-                        <strong className="text-foreground">{item.regime}</strong>
-                      </div>
-                      <div className="mt-1 flex flex-wrap gap-2 text-xs">
-                        <span>conf {formatPercent(item.confidence)}</span>
-                        <span>{item.aligned ? "aligned" : "not aligned"}</span>
-                        <span>{item.conflict ? "conflict" : "no conflict"}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">No higher timeframe data available.</p>
-              )}
-            </div>
-            <div>
-              <h4 className="mb-2 text-sm font-medium">Regime Scores</h4>
-              {explanation.regime?.regime_scores ? (
-                <ul className="space-y-1 text-sm text-muted-foreground">
-                  {Object.entries(explanation.regime.regime_scores)
-                    .sort(([, left], [, right]) => right - left)
-                    .slice(0, 5)
-                    .map(([regime, score]) => <li key={regime}>{regime}: {formatPercent(score)}</li>)}
-                </ul>
-              ) : (
-                <p className="text-sm text-muted-foreground">No regime score payload.</p>
-              )}
-            </div>
-            <div>
-              <h4 className="mb-2 text-sm font-medium">Passed Rules</h4>
-              {explanation.strategy?.passed_conditions?.length ? (
-                <ul className="space-y-1 text-sm text-muted-foreground">
-                  {explanation.strategy.passed_conditions.map((item) => <li key={item}>- {item}</li>)}
-                </ul>
-              ) : (
-                <p className="text-sm text-muted-foreground">No passed rule payload.</p>
-              )}
-            </div>
-            <div>
-              <h4 className="mb-2 text-sm font-medium">Failed Rules</h4>
-              {explanation.strategy?.failed_conditions?.length ? (
-                <ul className="space-y-1 text-sm text-muted-foreground">
-                  {explanation.strategy.failed_conditions.map((item) => <li key={item}>- {item}</li>)}
-                </ul>
-              ) : (
-                <p className="text-sm text-muted-foreground">No failed rules.</p>
-              )}
-            </div>
-          </div>
-        </section>
-      ) : null}
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
         <section className="rounded-lg border border-border bg-white p-4">
-          <h3 className="mb-3 font-semibold">Reasons</h3>
-          {latestSignal?.reasons?.length ? (
+          <h3 className="mb-3 font-semibold">Top Evidence For</h3>
+          {evidenceFor.length ? (
             <ul className="space-y-2 text-sm text-muted-foreground">
-              {latestSignal.reasons.map((reason) => <li key={reason}>- {reason}</li>)}
+              {evidenceFor.map((item, index) => (
+                <li key={`${item.name ?? "for"}-${index}`} className="rounded border border-border p-2">
+                  <p className="font-medium text-foreground">{item.name ?? "Evidence"}</p>
+                  <p>{item.reason ?? "-"}</p>
+                  <p className="mt-1 text-xs">
+                    score {formatNumber(item.score ?? null, 3)} | conf {formatNumber(item.confidence ?? null, 3)} | impact {formatNumber(item.impact_on_score ?? null, 4)}
+                  </p>
+                </li>
+              ))}
             </ul>
           ) : (
-            <p className="text-sm text-muted-foreground">No signal generated</p>
+            <p className="text-sm text-muted-foreground">No supporting evidence payload.</p>
           )}
         </section>
         <section className="rounded-lg border border-border bg-white p-4">
+          <h3 className="mb-3 font-semibold">Top Evidence Against</h3>
+          {evidenceAgainst.length ? (
+            <ul className="space-y-2 text-sm text-muted-foreground">
+              {evidenceAgainst.map((item, index) => (
+                <li key={`${item.name ?? "against"}-${index}`} className="rounded border border-border p-2">
+                  <p className="font-medium text-foreground">{item.name ?? "Evidence"}</p>
+                  <p>{item.reason ?? "-"}</p>
+                  <p className="mt-1 text-xs">
+                    score {formatNumber(item.score ?? null, 3)} | conf {formatNumber(item.confidence ?? null, 3)} | impact {formatNumber(item.impact_on_score ?? null, 4)}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground">No opposing evidence payload.</p>
+          )}
+        </section>
+      </div>
+      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+        <section className="rounded-lg border border-border bg-white p-4">
           <h3 className="mb-3 font-semibold">Risk Notes</h3>
           {latestSignal?.risk_notes?.length ? (
-            <ul className="space-y-2 text-sm text-muted-foreground">
+            <ul className="space-y-1 text-sm text-muted-foreground">
               {latestSignal.risk_notes.map((note) => <li key={note}>- {note}</li>)}
             </ul>
           ) : (
             <p className="text-sm text-muted-foreground">No risk notes.</p>
           )}
         </section>
+        <section className="rounded-lg border border-border bg-white p-4">
+          <h3 className="mb-3 font-semibold">Reasons</h3>
+          {latestSignal?.reasons?.length ? (
+            <ul className="space-y-1 text-sm text-muted-foreground">
+              {latestSignal.reasons.map((reason) => <li key={reason}>- {reason}</li>)}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground">No signal reasons.</p>
+          )}
+        </section>
       </div>
       <section className="mt-4 rounded-lg border border-border bg-white p-4">
-        <h3 className="mb-3 font-semibold">Explainability</h3>
-        {latestSignal?.explainability ? (
-          <div className="grid gap-4 xl:grid-cols-3">
-            <p className="text-sm text-muted-foreground xl:col-span-1">{latestSignal.explainability.summary}</p>
-            <div>
-              <h4 className="mb-2 text-sm font-medium">Positive Factors</h4>
-              <ul className="space-y-1 text-sm text-muted-foreground">
-                {latestSignal.explainability.top_positive_factors?.map((factor) => (
-                  <li key={factor.feature}>{factor.feature}: {formatNumber(factor.impact, 4)}</li>
-                ))}
-              </ul>
-            </div>
-            <div>
-              <h4 className="mb-2 text-sm font-medium">Negative Factors</h4>
-              <ul className="space-y-1 text-sm text-muted-foreground">
-                {latestSignal.explainability.top_negative_factors?.map((factor) => (
-                  <li key={factor.feature}>{factor.feature}: {formatNumber(factor.impact, 4)}</li>
-                ))}
-              </ul>
-            </div>
-          </div>
+        <h3 className="mb-3 font-semibold">Decision Trace</h3>
+        {!traceSteps.length ? (
+          <p className="text-sm text-muted-foreground">No decision trace payload.</p>
         ) : (
-          <p className="text-sm text-muted-foreground">No explainability payload returned by the API.</p>
+          <div className="space-y-2">
+            {traceSteps.map((step: DecisionStepPayload, index) => (
+              <details key={`${step.step_name}-${index}`} className="rounded border border-border p-3">
+                <summary className="cursor-pointer text-sm font-medium text-foreground">
+                  {step.step_name} | in {formatNumber(step.input_score ?? null, 4)} → out {formatNumber(step.output_score ?? null, 4)} | {step.passed ? "passed" : "blocked"}
+                </summary>
+                <div className="mt-2 grid gap-2 text-sm text-muted-foreground md:grid-cols-2">
+                  <div>delta: {formatNumber(step.delta ?? null, 4)}</div>
+                  <div>timestamp: {step.timestamp ?? "-"}</div>
+                </div>
+                {Array.isArray(step.warnings) && step.warnings.length ? (
+                  <ul className="mt-2 space-y-1 text-xs text-amber-700">
+                    {step.warnings.map((warning) => <li key={warning}>warning: {warning}</li>)}
+                  </ul>
+                ) : null}
+                <pre className="mt-2 max-h-56 overflow-auto rounded bg-muted p-2 text-xs">
+                  {JSON.stringify(step.details ?? {}, null, 2)}
+                </pre>
+              </details>
+            ))}
+          </div>
         )}
       </section>
     </div>
