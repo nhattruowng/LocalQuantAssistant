@@ -7,6 +7,7 @@ import {
   History,
   LayoutDashboard,
   Settings,
+  ShieldAlert,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +16,7 @@ export type PageKey =
   | "market"
   | "signal"
   | "backtest"
+  | "risk"
   | "model"
   | "history"
   | "settings";
@@ -29,6 +31,7 @@ const navItems = [
   { key: "market", label: "Market", icon: BarChart3 },
   { key: "signal", label: "Signal", icon: Activity },
   { key: "backtest", label: "Backtest", icon: Gauge },
+  { key: "risk", label: "Risk", icon: ShieldAlert },
   { key: "model", label: "Model", icon: Brain },
   { key: "history", label: "History", icon: History },
   { key: "settings", label: "Settings", icon: Settings },
@@ -43,8 +46,8 @@ export function Sidebar({ activePage, onNavigate }: SidebarProps) {
             LQ
           </div>
           <div>
-            <h1 className="text-lg font-semibold">LocalQuant Assistant</h1>
-            <p className="text-xs text-muted-foreground">Research support only</p>
+            <h1 className="text-lg font-semibold">LocalQuant Brain</h1>
+            <p className="text-xs text-muted-foreground">Reasoning, confluence, and research</p>
           </div>
         </div>
       </div>
@@ -71,7 +74,7 @@ export function Sidebar({ activePage, onNavigate }: SidebarProps) {
       </nav>
       <div className="mt-4 px-5 text-xs text-muted-foreground">
         <Clock className="mb-2 h-4 w-4" />
-        Suggestions only. No automatic trading.
+        Signals are decision support, not execution.
       </div>
     </aside>
   );

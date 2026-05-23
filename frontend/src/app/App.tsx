@@ -2,13 +2,14 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import type { PageKey } from "@/components/layout/Sidebar";
-import { BacktestPage } from "@/features/backtest/BacktestPage";
 import { DashboardPage } from "@/features/dashboard/DashboardPage";
 import { HistoryPage } from "@/features/history/HistoryPage";
 import { MarketPage } from "@/features/market/MarketPage";
-import { ModelPage } from "@/features/model/ModelPage";
 import { SettingsPage } from "@/features/settings/SettingsPage";
 import { SignalPage } from "@/features/signal/SignalPage";
+import { BacktestPage } from "@/pages/BacktestPage";
+import { ModelPage } from "@/pages/ModelPage";
+import { RiskPage } from "@/pages/RiskPage";
 import { useSessionStore } from "@/hooks/useSessionStore";
 
 export function App() {
@@ -30,6 +31,7 @@ export function App() {
     market: <MarketPage />,
     signal: <SignalPage latestSignal={latestSignal} onSignalGenerated={setLatestSignal} />,
     backtest: <BacktestPage />,
+    risk: <RiskPage />,
     model: <ModelPage />,
     history: <HistoryPage />,
     settings: <SettingsPage />,

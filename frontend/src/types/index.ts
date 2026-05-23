@@ -112,6 +112,10 @@ export interface TradeSetup {
   market_regime?: string;
   signal: SignalType;
   strategy?: StrategyType;
+  setup_type?: string | null;
+  confluence_score?: number | null;
+  conflict_level?: string | null;
+  conflict_details?: Record<string, unknown> | null;
   confidence: number;
   entry: number | null;
   stop_loss: number | null;
@@ -119,6 +123,7 @@ export interface TradeSetup {
   take_profit_2: number | null;
   risk_reward: number | null;
   position_size: number | null;
+  position_size_multiplier?: number | null;
   reasons: string[];
   risk_notes: string[];
   probabilities?: Partial<Record<SignalType, number>>;
@@ -212,6 +217,7 @@ export interface Trade {
   probability_source?: string;
   conflict_level?: string;
   confluence_score?: number;
+  confluence_bucket?: string;
 }
 
 export interface PaperTrade {
@@ -259,10 +265,15 @@ export interface BacktestReport {
   average_win?: number;
   average_loss?: number;
   expectancy: number;
+  avg_r_multiple?: number | null;
+  best_trade?: number | null;
+  worst_trade?: number | null;
   average_risk_reward?: number;
   trades?: Trade[];
   grouped?: Record<string, Record<string, BacktestSegmentMetrics>>;
   wait_reason_distribution?: Record<string, number>;
+  backtest_analytics?: Record<string, unknown> | null;
+  ablation_result?: Record<string, unknown> | Array<Record<string, unknown>> | null;
   scenarios?: Array<Record<string, unknown>>;
   json_path?: string;
   csv_path?: string;
@@ -272,12 +283,16 @@ export interface BacktestReport {
 export interface BacktestResponse {
   rule_only?: BacktestReport;
   ml_enhanced?: BacktestReport;
-  [mode: string]: BacktestReport | undefined;
+  backtest_analytics?: Record<string, unknown> | null;
+  ablation_result?: Record<string, unknown> | Array<Record<string, unknown>> | null;
+  [mode: string]: BacktestReport | Record<string, unknown> | Array<Record<string, unknown>> | null | undefined;
 }
 
 export interface ModelInfo {
   model_type?: string;
   trained_at?: string;
+  symbol?: string;
+  timeframe?: string;
   feature_columns?: string[];
   metrics?: Record<string, unknown>;
   metadata_path?: string;
@@ -285,13 +300,16 @@ export interface ModelInfo {
   model_id?: string;
   model_version?: string;
   model_scope?: string;
+  validation_method?: string;
   status?: string;
   calibration_enabled?: boolean;
   calibration_method?: string;
+  probability_source?: string;
   brier_score_before?: number | null;
   brier_score_after?: number | null;
   log_loss_before?: number | null;
   log_loss_after?: number | null;
+  drift_report?: DriftReportPayload | null;
 }
 
 export interface ModelCalibration {
@@ -300,6 +318,10 @@ export interface ModelCalibration {
   trained_at?: string;
   calibration_enabled?: boolean;
   calibration_method?: string;
+  raw_probability?: number | null;
+  calibrated_probability?: number | null;
+  raw_probabilities?: Partial<Record<SignalType, number>> | null;
+  calibrated_probabilities?: Partial<Record<SignalType, number>> | null;
   brier_score_before?: number | null;
   brier_score_after?: number | null;
   log_loss_before?: number | null;
@@ -338,17 +360,25 @@ export interface RiskStatus {
   state: "ACTIVE" | "WARNING" | "BLOCKED" | "COOLDOWN" | string;
   reasons: string[];
   daily_trade_count: number;
+  trades_today?: number;
   open_positions: number;
   consecutive_losses: number;
+  max_consecutive_losses?: number;
   daily_drawdown_pct: number;
   weekly_drawdown_pct: number;
+  current_exposure?: number | null;
   last_blocked_at?: string | null;
   events?: Array<{
     timestamp: string;
+    event_type?: string;
     state: string;
+    severity?: string;
+    message?: string;
     reason: string;
+    affected_symbol?: string;
     symbol: string;
     timeframe: string;
+    action_taken?: string;
   }>;
 }
 

@@ -11,6 +11,7 @@ import {
   getSignalHistory,
   getSymbols,
   getTimeframes,
+  getLatestBacktest,
   runBacktest,
   trainModel,
   updateData,
@@ -79,6 +80,15 @@ export function useRiskStatusQuery() {
   return useQuery({
     queryKey: ["risk-status", symbol, timeframe],
     queryFn: () => getRiskStatus(symbol, timeframe),
+    retry: 1,
+  });
+}
+
+export function useLatestBacktestQuery() {
+  const { symbol, timeframe } = useAppSettings();
+  return useQuery({
+    queryKey: ["backtest-latest", symbol, timeframe],
+    queryFn: () => getLatestBacktest(symbol, timeframe),
     retry: 1,
   });
 }

@@ -3,6 +3,14 @@ import { Button } from "@/components/forms/Button";
 import { MetricCard } from "@/components/cards/MetricCard";
 import { SignalCard } from "@/components/cards/SignalCard";
 import { PageHeader } from "@/components/layout/PageHeader";
+import {
+  ConflictPanel,
+  DecisionTracePanel,
+  EvidenceRail,
+  ReasoningOverview,
+  RiskGuardBanner,
+  resolveReasoning,
+} from "@/components/reasoning/ReasoningPanels";
 import { useActions, useCandlesQuery, useRiskStatusQuery } from "@/hooks/useApiQueries";
 import { useSessionStore } from "@/hooks/useSessionStore";
 import { formatNumber, formatPercent } from "@/lib/utils";
@@ -26,6 +34,7 @@ export function DashboardPage({
   const actions = useActions();
   const { setLatestBacktest } = useSessionStore();
   const latestCandle = candles.data?.at(-1);
+  const reasoning = resolveReasoning(latestSignal);
 
   const generate = async () => {
     const setup = await actions.generateSignal.mutateAsync(undefined);
@@ -40,6 +49,7 @@ export function DashboardPage({
 
   return (
     <div>
+      <RiskGuardBanner state={riskStatus.data?.state} reasons={riskStatus.data?.reasons} />
       <PageHeader
         title="Dashboard"
         description="Market snapshot, current setup, and quick workflow actions."
@@ -62,20 +72,41 @@ export function DashboardPage({
       />
       <div className="grid gap-4 xl:grid-cols-[380px_1fr]">
         <SignalCard setup={latestSignal} />
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <MetricCard label="Latest Price" value={formatNumber(latestCandle?.close, 4)} />
-          <MetricCard label="Market Regime" value={latestSignal?.market_regime ?? latestCandle?.market_regime ?? "-"} />
-          <MetricCard label="Confidence" value={formatPercent(latestSignal?.confidence)} />
-          <MetricCard label="Risk/Reward" value={formatNumber(latestSignal?.risk_reward, 2)} />
-          <MetricCard label="Rows Loaded" value={candles.data?.length ?? 0} />
-          <MetricCard label="Volume" value={formatNumber(latestCandle?.volume, 2)} />
-          <MetricCard label="RSI 14" value={formatNumber(latestCandle?.rsi_14, 2)} />
-          <MetricCard
-            label="Backtest Net"
-            value={formatNumber(latestBacktestNetProfit, 2)}
-            helper={<span className="inline-flex items-center gap-1"><Gauge className="h-3 w-3" /> Latest run</span>}
-          />
+        <div className="grid gap-4">
+          <ReasoningOverview setup={latestSignal} />
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard label="Latest Price" value={formatNumber(latestCandle?.close, 4)} />
+            <MetricCard label="Market Regime" value={latestSignal?.market_regime ?? latestCandle?.market_regime ?? "-"} />
+            <MetricCard label="Confidence" value={formatPercent(latestSignal?.confidence)} />
+            <MetricCard label="Risk/Reward" value={formatNumber(latestSignal?.risk_reward, 2)} />
+            <MetricCard label="Rows Loaded" value={candles.data?.length ?? 0} />
+            <MetricCard label="Volume" value={formatNumber(latestCandle?.volume, 2)} />
+            <MetricCard label="RSI 14" value={formatNumber(latestCandle?.rsi_14, 2)} />
+            <MetricCard
+              label="Backtest Net"
+              value={formatNumber(latestBacktestNetProfit, 2)}
+              helper={<span className="inline-flex items-center gap-1"><Gauge className="h-3 w-3" /> Latest run</span>}
+            />
+          </div>
         </div>
+      </div>
+      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+        <EvidenceRail
+          title="Evidence For"
+          items={reasoning?.evidence_for}
+          tone="for"
+          emptyText="No supporting evidence yet."
+        />
+        <EvidenceRail
+          title="Evidence Against"
+          items={reasoning?.evidence_against}
+          tone="against"
+          emptyText="No opposing evidence yet."
+        />
+      </div>
+      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+        <ConflictPanel setup={latestSignal} />
+        <DecisionTracePanel setup={latestSignal} />
       </div>
       <section className="mt-4 rounded-lg border border-border bg-white p-4">
         <div className="grid gap-4 md:grid-cols-4">

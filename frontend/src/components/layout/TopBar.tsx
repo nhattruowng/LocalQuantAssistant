@@ -20,8 +20,8 @@ export function TopBar({ onRefresh }: TopBarProps) {
     <header className="sticky top-0 z-10 border-b border-border bg-background/95 px-4 py-3 backdrop-blur lg:px-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <p className="text-sm text-muted-foreground">Frontend for FastAPI backend</p>
-          <h2 className="text-xl font-semibold tracking-normal">Trading Setup Workspace</h2>
+          <p className="text-sm text-muted-foreground">Reasoning-first frontend for the FastAPI backend</p>
+          <h2 className="text-xl font-semibold tracking-normal">Market Reasoning Workspace</h2>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <Select

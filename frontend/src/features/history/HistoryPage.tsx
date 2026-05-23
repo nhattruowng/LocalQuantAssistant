@@ -4,7 +4,7 @@ import { Select } from "@/components/forms/Select";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataTable } from "@/components/tables/DataTable";
 import { useHistoryQuery } from "@/hooks/useApiQueries";
-import { formatNumber } from "@/lib/utils";
+import { formatNumber, formatPercent } from "@/lib/utils";
 import type { SignalHistory, SignalType } from "@/types";
 
 const signalOptions: Array<SignalType | "ALL"> = ["ALL", "BUY", "SELL", "WAIT"];
@@ -39,7 +39,7 @@ export function HistoryPage() {
           { key: "signal", label: "Signal" },
           { key: "strategy", label: "Strategy" },
           { key: "market_regime", label: "Regime" },
-          { key: "confidence", label: "Confidence", render: (value) => formatNumber(Number(value), 4) },
+          { key: "confidence", label: "Confidence", render: (value) => formatPercent(Number(value)) },
         ]}
       />
     </div>
