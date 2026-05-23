@@ -25,6 +25,7 @@ from ml.calibration.calibration_metrics import calibration_report
 from ml.calibration.probability_calibrator import ProbabilityCalibrator
 from ml.dataset_builder import DatasetBuilder, DatasetSplit, TARGET_LABELS
 from ml.model_registry import GLOBAL_SCOPE, REGIME_SCOPE, ModelRegistry
+from ml.validation.purged_cv import PurgedTimeSeriesSplit
 from ml.validation.walk_forward import WalkForwardValidator
 
 
@@ -151,16 +152,16 @@ class ModelTrainer:
         metrics = self._evaluate(model_to_save, split)
         metrics["calibration"] = calibration_metadata
         validation_metadata = self._validation_metadata(prepared)
-        if model_scope == GLOBAL_SCOPE and self._settings.training.validation.method == "walk_forward":
-            metrics["walk_forward"] = self._walk_forward_metrics(
-                prepared,
-                feature_columns,
-            )
-            metrics["validation_summary"] = metrics["walk_forward"]["summary"]
-            validation_metadata["fold_metrics"] = metrics["walk_forward"]["fold_metrics"]
-            validation_metadata["validation_summary"] = metrics["walk_forward"]["summary"]
+        if model_scope == GLOBAL_SCOPE and self._settings.training.validation.method in {"walk_forward", "purged_cv"}:
+            fold_validation = self._fold_validation_metrics(prepared, feature_columns)
+            metrics["validation_folds"] = fold_validation
+            metrics["validation_summary"] = fold_validation["summary"]
+            validation_metadata["fold_metrics"] = fold_validation["fold_metrics"]
+            validation_metadata["validation_summary"] = fold_validation["summary"]
+            validation_metadata["worst_fold_metric"] = fold_validation["summary"]["worst_fold_metric"]
         else:
             validation_metadata["fold_metrics"] = []
+            validation_metadata["worst_fold_metric"] = None
 
         model_type = (
             f"Calibrated{base_model_type}"
@@ -386,19 +387,33 @@ class ModelTrainer:
                 "log_loss_after": raw_report["log_loss"],
             }
 
-    def _walk_forward_metrics(
+    def _fold_validation_metrics(
         self,
         dataset: pd.DataFrame,
         feature_columns: list[str],
     ) -> dict[str, Any]:
-        """Run purged walk-forward validation and summarize fold metrics."""
-        validator = WalkForwardValidator(
-            settings=self._settings.training.validation,
-            purge_size=self._settings.labeling.lookahead_bars,
-        )
-        split = validator.split(dataset)
+        """Run configured fold validation (walk-forward or purged-cv)."""
+        validation = self._settings.training.validation
+        purge_size = self._effective_purge_size()
+        if validation.method == "walk_forward":
+            split = WalkForwardValidator(
+                settings=validation,
+                purge_size=purge_size,
+            ).split(dataset).folds
+        elif validation.method == "purged_cv":
+            split = PurgedTimeSeriesSplit(
+                n_splits=validation.n_splits,
+                purge_size=purge_size,
+                embargo_size=validation.embargo_size,
+                validation_window_bars=validation.validation_window_bars,
+                train_window_bars=validation.train_window_bars,
+                test_window_bars=validation.test_window_bars,
+            ).split(dataset)
+        else:
+            raise ValueError(f"Unsupported validation fold method: {validation.method}")
+
         fold_metrics: list[dict[str, Any]] = []
-        for fold in split.folds:
+        for fold in split:
             fold_model_type, metrics = self._fit_and_score_fold(
                 dataset=dataset,
                 feature_columns=feature_columns,
@@ -428,6 +443,15 @@ class ModelTrainer:
                 "worst_fold_metric": min(accuracies),
             },
         }
+
+    def _effective_purge_size(self) -> int:
+        """Use configured purge_size or fallback to labeling lookahead."""
+        validation = self._settings.training.validation
+        return (
+            validation.purge_size
+            if validation.purge_size > 0
+            else self._settings.labeling.lookahead_bars
+        )
 
     def _fit_and_score_fold(
         self,
@@ -507,20 +531,21 @@ class ModelTrainer:
         metadata: dict[str, Any] = {
             "validation_method": validation.method,
             "purge_size": (
-                self._settings.labeling.lookahead_bars
-                if validation.method == "walk_forward"
+                self._effective_purge_size()
+                if validation.method in {"walk_forward", "purged_cv"}
                 else 0
             ),
             "embargo_size": validation.embargo_size,
             "dataset_start": _dataset_timestamp(dataset, 0),
             "dataset_end": _dataset_timestamp(dataset, len(dataset) - 1),
         }
-        if validation.method == "walk_forward":
+        if validation.method in {"walk_forward", "purged_cv"}:
             metadata.update(
                 {
                     "validation_n_splits": validation.n_splits,
                     "validation_train_window_bars": validation.train_window_bars,
                     "validation_window_bars": validation.validation_window_bars,
+                    "validation_test_window_bars": validation.test_window_bars,
                     "validation_expanding_window": validation.expanding_window,
                 }
             )

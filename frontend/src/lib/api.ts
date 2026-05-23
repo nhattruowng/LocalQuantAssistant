@@ -3,6 +3,7 @@ import type {
   BacktestResponse,
   Candle,
   ModelCalibration,
+  ModelDriftResponse,
   ModelInfo,
   RiskStatus,
   SignalHistory,
@@ -104,6 +105,13 @@ export async function getModelInfo(symbol?: string, timeframe?: string) {
 export async function getModelCalibration(symbol?: string, timeframe?: string) {
   const { data } = await apiClient.get<ModelCalibration>("/api/model/calibration", {
     params: { symbol, timeframe },
+  });
+  return data;
+}
+
+export async function getModelDrift(symbol?: string, timeframe?: string, recentWindow = 200) {
+  const { data } = await apiClient.get<ModelDriftResponse>("/api/model/drift", {
+    params: { symbol, timeframe, recent_window: recentWindow },
   });
   return data;
 }

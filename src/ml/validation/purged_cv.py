@@ -1,100 +1,154 @@
-"""Purged train/validation splitting helpers."""
+"""Purged/embargo-aware chronological validation splitters."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pandas as pd
 
 
 @dataclass(frozen=True)
 class PurgedFold:
-    """A train/validation fold after purge and embargo rules."""
+    """One chronological train/validation (and optional test) fold."""
 
     fold_id: int
     train_indices: list[int]
     validation_indices: list[int]
-    train_start: int
-    train_end: int
-    validation_start: int
-    validation_end: int
-    purge_size: int
-    embargo_size: int
+    test_indices: list[int] = field(default_factory=list)
+    train_start: int = 0
+    train_end: int = 0
+    validation_start: int = 0
+    validation_end: int = 0
+    test_start: int | None = None
+    test_end: int | None = None
+    purge_size: int = 0
+    embargo_size: int = 0
 
     def to_metadata(self, dataset: pd.DataFrame) -> dict[str, object]:
-        """Return timestamp-aware fold metadata."""
+        """Return timestamp-aware metadata for this fold."""
+        train_start_index = self.train_indices[0] if self.train_indices else None
+        train_end_index = self.train_indices[-1] if self.train_indices else None
+        validation_start_index = self.validation_indices[0] if self.validation_indices else None
+        validation_end_index = self.validation_indices[-1] if self.validation_indices else None
+        test_start_index = self.test_indices[0] if self.test_indices else None
+        test_end_index = self.test_indices[-1] if self.test_indices else None
         return {
             "fold_id": self.fold_id,
             "train_rows": len(self.train_indices),
             "validation_rows": len(self.validation_indices),
-            "train_start_index": self.train_start,
-            "train_end_index": self.train_end - 1,
-            "validation_start_index": self.validation_start,
-            "validation_end_index": self.validation_end - 1,
-            "train_start": _timestamp_at(dataset, self.train_indices[0]),
-            "train_end": _timestamp_at(dataset, self.train_indices[-1]),
-            "validation_start": _timestamp_at(dataset, self.validation_indices[0]),
-            "validation_end": _timestamp_at(dataset, self.validation_indices[-1]),
+            "test_rows": len(self.test_indices),
+            "train_start_index": train_start_index,
+            "train_end_index": train_end_index,
+            "validation_start_index": validation_start_index,
+            "validation_end_index": validation_end_index,
+            "test_start_index": test_start_index,
+            "test_end_index": test_end_index,
+            "train_start": _timestamp_at(dataset, train_start_index),
+            "train_end": _timestamp_at(dataset, train_end_index),
+            "validation_start": _timestamp_at(dataset, validation_start_index),
+            "validation_end": _timestamp_at(dataset, validation_end_index),
+            "test_start": _timestamp_at(dataset, test_start_index),
+            "test_end": _timestamp_at(dataset, test_end_index),
             "purge_size": self.purge_size,
             "embargo_size": self.embargo_size,
         }
 
 
 class PurgedTimeSeriesSplit:
-    """Creates chronological CV folds with purge and embargo leakage guards."""
+    """Chronological purged cross-validation without shuffling."""
 
     def __init__(
         self,
         n_splits: int,
         purge_size: int,
         embargo_size: int = 0,
+        validation_window_bars: int | None = None,
+        train_window_bars: int | None = None,
+        test_window_bars: int = 0,
     ) -> None:
         if n_splits <= 0:
             raise ValueError("n_splits must be positive.")
         if purge_size < 0 or embargo_size < 0:
             raise ValueError("Purge and embargo sizes must be non-negative.")
+        if validation_window_bars is not None and validation_window_bars <= 0:
+            raise ValueError("validation_window_bars must be positive when provided.")
+        if train_window_bars is not None and train_window_bars <= 0:
+            raise ValueError("train_window_bars must be positive when provided.")
+        if test_window_bars < 0:
+            raise ValueError("test_window_bars must be non-negative.")
         self._n_splits = n_splits
         self._purge_size = purge_size
         self._embargo_size = embargo_size
+        self._validation_window_bars = validation_window_bars
+        self._train_window_bars = train_window_bars
+        self._test_window_bars = test_window_bars
 
     def split(self, dataset: pd.DataFrame) -> list[PurgedFold]:
-        """Return purged folds where validation blocks move forward in time."""
+        """Return purged folds with train timestamps strictly before validation."""
         if dataset.empty:
             raise ValueError("Dataset must not be empty.")
         row_count = len(dataset)
-        validation_window = row_count // (self._n_splits + 1)
+        validation_window = self._validation_window_bars or row_count // (self._n_splits + 1)
         if validation_window <= 0:
             raise ValueError("Not enough rows to create purged CV folds.")
 
         folds: list[PurgedFold] = []
         for fold_id in range(self._n_splits):
             validation_start = validation_window * (fold_id + 1)
-            validation_end = (
-                row_count
-                if fold_id == self._n_splits - 1
-                else validation_start + validation_window
-            )
-            if validation_start >= row_count or validation_end <= validation_start:
+            validation_end = validation_start + validation_window
+            if validation_end > row_count:
                 break
+
+            train_end = validation_start
+            if self._train_window_bars is None:
+                train_start = 0
+            else:
+                train_start = max(0, train_end - self._train_window_bars)
+            raw_train_indices = list(range(train_start, train_end))
             validation_indices = list(range(validation_start, validation_end))
-            train_indices = [
-                index
-                for index in range(row_count)
-                if index < validation_start or index >= validation_end
-            ]
+            if not raw_train_indices or not validation_indices:
+                break
+
+            fold = apply_purge_and_embargo(
+                fold_id=fold_id,
+                train_indices=raw_train_indices,
+                validation_indices=validation_indices,
+                purge_size=self._purge_size,
+                embargo_size=self._embargo_size,
+            )
+            test_indices = self._test_indices(
+                row_count=row_count,
+                validation_end=validation_end,
+            )
             folds.append(
-                apply_purge_and_embargo(
-                    fold_id=fold_id,
-                    train_indices=train_indices,
-                    validation_indices=validation_indices,
-                    purge_size=self._purge_size,
-                    embargo_size=self._embargo_size,
+                PurgedFold(
+                    fold_id=fold.fold_id,
+                    train_indices=fold.train_indices,
+                    validation_indices=fold.validation_indices,
+                    test_indices=test_indices,
+                    train_start=fold.train_start,
+                    train_end=fold.train_end,
+                    validation_start=fold.validation_start,
+                    validation_end=fold.validation_end,
+                    test_start=test_indices[0] if test_indices else None,
+                    test_end=(test_indices[-1] + 1) if test_indices else None,
+                    purge_size=fold.purge_size,
+                    embargo_size=fold.embargo_size,
                 )
             )
 
         if not folds:
             raise ValueError("No purged CV folds could be created.")
         return folds
+
+    def _test_indices(self, row_count: int, validation_end: int) -> list[int]:
+        if self._test_window_bars <= 0:
+            return []
+        test_start = validation_end
+        test_end = test_start + self._test_window_bars
+        if test_end > row_count:
+            return []
+        return list(range(test_start, test_end))
 
 
 def apply_purge_and_embargo(
@@ -104,7 +158,7 @@ def apply_purge_and_embargo(
     purge_size: int,
     embargo_size: int = 0,
 ) -> PurgedFold:
-    """Remove train rows near validation boundaries to reduce label leakage."""
+    """Remove train rows near validation boundaries to reduce leakage."""
     if not train_indices:
         raise ValueError("Train indices must not be empty.")
     if not validation_indices:
@@ -136,8 +190,10 @@ def apply_purge_and_embargo(
     )
 
 
-def _timestamp_at(dataset: pd.DataFrame, index: int) -> str | int:
-    """Return timestamp value when available, otherwise the integer index."""
+def _timestamp_at(dataset: pd.DataFrame, index: int | None) -> str | int | None:
+    """Return timestamp value when available, otherwise integer index."""
+    if index is None:
+        return None
     if "timestamp" not in dataset:
         return index
     value = dataset.iloc[index]["timestamp"]

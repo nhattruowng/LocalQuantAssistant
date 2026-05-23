@@ -1011,6 +1011,8 @@ class SignalEngine:
             details["wait_reason"] = wait_reason
         if diagnostics and isinstance(diagnostics.get("multi_timeframe"), dict):
             details["multi_timeframe"] = diagnostics["multi_timeframe"]
+        if diagnostics and isinstance(diagnostics.get("drift_report"), dict):
+            details["drift_report"] = diagnostics["drift_report"]
         trace.add_step(
             step_name="final_decision",
             input_score=round(final_score, 4),
@@ -1025,6 +1027,9 @@ class SignalEngine:
         )
         if wait_reason is not None:
             trace.add_warning(wait_reason)
+        drift_report = diagnostics.get("drift_report") if isinstance(diagnostics, dict) else None
+        if isinstance(drift_report, dict) and str(drift_report.get("drift_level", "")).upper() == "HIGH":
+            trace.add_warning("MODEL_DRIFT_HIGH")
         return trace.to_dict()
 
     def _score(self, decision: StrategyDecision, risk_plan: RiskPlan) -> float:

@@ -242,7 +242,9 @@ class TrainingValidationSettings:
     n_splits: int = 5
     train_window_bars: int = 500
     validation_window_bars: int = 100
+    test_window_bars: int = 0
     expanding_window: bool = True
+    purge_size: int = 0
     embargo_size: int = 0
 
 
@@ -300,6 +302,12 @@ class ExecutionCostSettings:
     max_slippage_rate: float = 0.01
     volatility_multiplier: float = 10.0
     estimated_spread_rate: float = 0.0005
+    atr_factor: float = 1.0
+    low_volume_threshold: float = 0.7
+    low_volume_multiplier: float = 1.4
+    high_vol_multiplier: float = 1.6
+    extreme_vol_multiplier: float = 2.3
+    high_slippage_multiplier: float = 2.0
 
 
 @dataclass(frozen=True)

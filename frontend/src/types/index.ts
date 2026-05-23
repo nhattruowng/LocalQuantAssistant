@@ -62,6 +62,11 @@ export interface StructuredExplanation {
     passed_conditions?: string[];
     failed_conditions?: string[];
     rejected_strategies?: Array<Record<string, unknown>>;
+    setup_type?: string | null;
+    confluence_score?: number | null;
+    evidence_for?: Array<Record<string, unknown>>;
+    evidence_against?: Array<Record<string, unknown>>;
+    conflict_level?: string | null;
   };
   risk: {
     risk_reward?: number | null;
@@ -125,6 +130,64 @@ export interface TradeSetup {
   fallback_reason?: string | null;
   explainability?: Explainability | null;
   explanation_v2?: StructuredExplanation | null;
+  wait_reason?: string | null;
+  size_multiplier?: number | null;
+  strategy_diagnostics?: Record<string, unknown> | null;
+  reasoning_decision?: ReasoningDecisionPayload | null;
+}
+
+export interface DecisionStepPayload {
+  step_name: string;
+  input_score?: number;
+  output_score?: number;
+  delta?: number;
+  passed?: boolean;
+  details?: Record<string, unknown>;
+  warnings?: string[];
+  timestamp?: string;
+}
+
+export interface DecisionTracePayload {
+  trace_id?: string;
+  symbol?: string;
+  timeframe?: string;
+  model_version?: string | null;
+  config_hash?: string | null;
+  steps?: DecisionStepPayload[];
+  final_signal?: string;
+  final_confidence?: number;
+  created_at?: string;
+  warnings?: string[];
+}
+
+export interface ReasoningEvidencePayload {
+  name?: string;
+  source?: string;
+  direction?: string;
+  score?: number;
+  confidence?: number;
+  weight?: number;
+  evidence_type?: string;
+  reason?: string;
+  impact_on_score?: number;
+  is_critical?: boolean;
+}
+
+export interface ReasoningDecisionPayload {
+  final_signal?: string;
+  setup_type?: string;
+  confluence_score?: number;
+  confidence?: number;
+  adaptive_threshold?: number;
+  position_size_multiplier?: number;
+  evidence_for?: ReasoningEvidencePayload[];
+  evidence_against?: ReasoningEvidencePayload[];
+  warnings?: string[];
+  wait_reason?: string | null;
+  conflict_level?: string;
+  conflict_details?: Record<string, unknown>;
+  risk_notes?: string[];
+  decision_trace?: DecisionTracePayload | Record<string, unknown>;
 }
 
 export interface Trade {
@@ -140,6 +203,15 @@ export interface Trade {
   result: string;
   confidence: number;
   risk_reward?: number;
+  market_regime?: string;
+  setup_type?: string;
+  setup_grade?: string;
+  wait_reason?: string;
+  safety_filter?: string;
+  model_scope?: string;
+  probability_source?: string;
+  conflict_level?: string;
+  confluence_score?: number;
 }
 
 export interface PaperTrade {
@@ -158,6 +230,21 @@ export interface PaperTrade {
   pnl?: number;
 }
 
+export interface BacktestSegmentMetrics {
+  total_trades: number;
+  winrate: number;
+  gross_profit: number;
+  gross_loss: number;
+  net_profit: number;
+  profit_factor: number;
+  max_drawdown: number;
+  expectancy: number;
+  avg_holding_bars?: number;
+  avg_confidence?: number;
+  best_trade?: number;
+  worst_trade?: number;
+}
+
 export interface BacktestReport {
   symbol: string;
   timeframe: string;
@@ -174,6 +261,12 @@ export interface BacktestReport {
   expectancy: number;
   average_risk_reward?: number;
   trades?: Trade[];
+  grouped?: Record<string, Record<string, BacktestSegmentMetrics>>;
+  wait_reason_distribution?: Record<string, number>;
+  scenarios?: Array<Record<string, unknown>>;
+  json_path?: string;
+  csv_path?: string;
+  html_path?: string;
 }
 
 export interface BacktestResponse {
@@ -220,6 +313,24 @@ export interface ModelCalibration {
   probability_histogram_before?: Record<string, unknown[]> | null;
   probability_histogram_after?: Record<string, unknown[]> | null;
   report?: Record<string, unknown>;
+}
+
+export interface DriftReportPayload {
+  drift_level?: "NONE" | "LOW" | "MEDIUM" | "HIGH" | string;
+  drift_score?: number;
+  drifted_features?: Array<Record<string, unknown>>;
+  prediction_shift?: Record<string, unknown>;
+  calibration_shift?: Record<string, unknown>;
+  regime_shift?: Record<string, unknown>;
+  recommended_action?: "CONTINUE" | "WARN" | "RETRAIN_CANDIDATE" | "DISABLE_MODEL" | string;
+}
+
+export interface ModelDriftResponse {
+  symbol?: string;
+  timeframe?: string;
+  model_id?: string;
+  model_version?: string;
+  report?: DriftReportPayload;
 }
 
 export interface RiskStatus {

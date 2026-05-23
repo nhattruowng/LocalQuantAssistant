@@ -22,31 +22,37 @@ class WalkForwardSplit:
 
 
 class WalkForwardValidator:
-    """Creates expanding or rolling walk-forward validation folds."""
+    """Creates expanding (anchored) or rolling walk-forward folds."""
 
     def __init__(
         self,
         settings: TrainingValidationSettings,
         purge_size: int,
     ) -> None:
+        if purge_size < 0:
+            raise ValueError("purge_size must be non-negative.")
         self._settings = settings
         self._purge_size = purge_size
 
     def split(self, dataset: pd.DataFrame) -> WalkForwardSplit:
-        """Create chronological train/validation folds."""
+        """Create chronological train/validation/test folds."""
         if dataset.empty:
             raise ValueError("Dataset must not be empty.")
         data = dataset.reset_index(drop=True)
         folds: list[PurgedFold] = []
         train_window = self._settings.train_window_bars
         validation_window = self._settings.validation_window_bars
+        test_window = self._settings.test_window_bars
+        stride = validation_window + test_window
+        if stride <= 0:
+            stride = validation_window
 
         for fold_id in range(self._settings.n_splits):
             if self._settings.expanding_window:
                 train_start = 0
-                train_end = train_window + fold_id * validation_window
+                train_end = train_window + fold_id * stride
             else:
-                train_start = fold_id * validation_window
+                train_start = fold_id * stride
                 train_end = train_start + train_window
 
             validation_start = train_end
@@ -56,13 +62,38 @@ class WalkForwardValidator:
 
             train_indices = list(range(train_start, train_end))
             validation_indices = list(range(validation_start, validation_end))
+            if not train_indices or not validation_indices:
+                break
+            base_fold = apply_purge_and_embargo(
+                fold_id=fold_id,
+                train_indices=train_indices,
+                validation_indices=validation_indices,
+                purge_size=self._purge_size,
+                embargo_size=self._settings.embargo_size,
+            )
+
+            test_indices: list[int] = []
+            if test_window > 0:
+                test_start = validation_end
+                test_end = test_start + test_window
+                if test_end > len(data):
+                    break
+                test_indices = list(range(test_start, test_end))
+
             folds.append(
-                apply_purge_and_embargo(
-                    fold_id=fold_id,
-                    train_indices=train_indices,
-                    validation_indices=validation_indices,
-                    purge_size=self._purge_size,
-                    embargo_size=self._settings.embargo_size,
+                PurgedFold(
+                    fold_id=base_fold.fold_id,
+                    train_indices=base_fold.train_indices,
+                    validation_indices=base_fold.validation_indices,
+                    test_indices=test_indices,
+                    train_start=base_fold.train_start,
+                    train_end=base_fold.train_end,
+                    validation_start=base_fold.validation_start,
+                    validation_end=base_fold.validation_end,
+                    test_start=test_indices[0] if test_indices else None,
+                    test_end=(test_indices[-1] + 1) if test_indices else None,
+                    purge_size=base_fold.purge_size,
+                    embargo_size=base_fold.embargo_size,
                 )
             )
 

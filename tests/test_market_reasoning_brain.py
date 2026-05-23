@@ -138,6 +138,21 @@ def test_risk_guard_fail_forces_wait_risk_block() -> None:
     assert decision.wait_reason == WaitReason.WAIT_RISK_BLOCK.value
 
 
+def test_ict_disabled_still_runs_without_crash() -> None:
+    brain = MarketReasoningBrain(ReasoningBrainSettings(enabled=True))
+    decision = brain.decide(
+        _context(
+            regime="UPTREND",
+            primary_signal=SignalType.BUY,
+            probabilities={"BUY": 0.78, "SELL": 0.10, "WAIT": 0.12},
+            diagnostics={"ict": {"enabled": False}},
+        )
+    )
+
+    assert decision.final_signal in {SignalType.BUY, SignalType.WAIT}
+    assert any(step["step_name"] == "ict_confluence" for step in decision.decision_trace["steps"])
+
+
 def _context(
     regime: str,
     primary_signal: SignalType,

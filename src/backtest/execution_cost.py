@@ -39,6 +39,42 @@ class ExecutionCostModel(Protocol):
         """Return total execution fees."""
 
 
+class ZeroSlippageBaselineCostModel:
+    """Baseline model with zero slippage, preserving configured fees."""
+
+    name = "zero_slippage_baseline"
+
+    def __init__(self, settings: ExecutionCostSettings) -> None:
+        self._settings = settings
+
+    def calculate_entry_fill(
+        self,
+        price: float,
+        signal: SignalType,
+        row: Mapping[str, object],
+    ) -> float:
+        return float(price)
+
+    def calculate_exit_fill(
+        self,
+        price: float,
+        signal: SignalType,
+        row: Mapping[str, object],
+    ) -> float:
+        return float(price)
+
+    def calculate_fees(
+        self,
+        entry_fill: float,
+        exit_fill: float,
+        position_size: float,
+    ) -> float:
+        return (
+            abs(entry_fill * position_size) * self._settings.fee_rate
+            + abs(exit_fill * position_size) * self._settings.fee_rate
+        )
+
+
 class FixedCostModel:
     """Fixed fee and slippage model matching the original backtester behavior."""
 
@@ -156,6 +192,49 @@ class StressCostModel(SpreadAwareCostModel):
         return max(0.0, capped_spread) / 2.0
 
 
+class DynamicCostModel(FixedCostModel):
+    """Causal dynamic slippage based on ATR, volume, and volatility regime."""
+
+    name = "dynamic"
+
+    def _slippage_rate(self, row: Mapping[str, object]) -> float:
+        base = max(0.0, self._settings.base_slippage_rate)
+        atr_percent = max(0.0, _float(row.get("atr_percent"), 0.0))
+        volume_ratio = max(0.0, _float(row.get("volume_ratio"), 1.0))
+        volatility_level = str(row.get("volatility_level", "NORMAL")).upper()
+
+        slippage = base + atr_percent * max(0.0, self._settings.atr_factor)
+        if volume_ratio < self._settings.low_volume_threshold:
+            slippage *= max(1.0, self._settings.low_volume_multiplier)
+        if volatility_level == "HIGH":
+            slippage *= max(1.0, self._settings.high_vol_multiplier)
+        elif volatility_level == "EXTREME":
+            slippage *= max(1.0, self._settings.extreme_vol_multiplier)
+        return min(slippage, self._settings.max_slippage_rate)
+
+
+class HighSlippageCostModel(DynamicCostModel):
+    """Aggressive cost model for poor liquidity conditions."""
+
+    name = "high_slippage"
+
+    def _slippage_rate(self, row: Mapping[str, object]) -> float:
+        baseline = super()._slippage_rate(row)
+        stressed = baseline * max(1.0, self._settings.high_slippage_multiplier)
+        return min(stressed, self._settings.max_slippage_rate)
+
+
+class StressDynamicCostModel(DynamicCostModel):
+    """Worst-case dynamic model for stress testing."""
+
+    name = "stress"
+
+    def _slippage_rate(self, row: Mapping[str, object]) -> float:
+        baseline = super()._slippage_rate(row)
+        stressed = baseline * max(1.0, self._settings.stress_multiplier)
+        return min(stressed, self._settings.max_slippage_rate)
+
+
 def create_execution_cost_model(
     settings: BacktestSettings,
     model_name: str | None = None,
@@ -167,13 +246,21 @@ def create_execution_cost_model(
     )
     if model_name is not None:
         cost_settings = replace(cost_settings, model=model_name)
-    if cost_settings.model == "fixed":
+    if cost_settings.model in {"zero_slippage_baseline", "zero_slippage"}:
+        return ZeroSlippageBaselineCostModel(cost_settings)
+    if cost_settings.model in {"normal", "fixed"}:
         return FixedCostModel(cost_settings)
+    if cost_settings.model == "dynamic":
+        return DynamicCostModel(cost_settings)
+    if cost_settings.model == "high_slippage":
+        return HighSlippageCostModel(cost_settings)
     if cost_settings.model == "volatility_adjusted":
         return VolatilityAdjustedCostModel(cost_settings)
     if cost_settings.model == "spread_aware":
         return SpreadAwareCostModel(cost_settings)
     if cost_settings.model == "stress":
+        return StressDynamicCostModel(cost_settings)
+    if cost_settings.model == "stress_spread":
         return StressCostModel(cost_settings)
     raise ValueError(f"Unsupported execution cost model: {cost_settings.model}.")
 
@@ -185,17 +272,15 @@ def scenario_cost_models(settings: BacktestSettings) -> dict[str, ExecutionCostM
         base_slippage_rate=settings.slippage_rate,
     )
     return {
-        "normal": FixedCostModel(replace(base, model="fixed")),
-        "high_slippage": VolatilityAdjustedCostModel(
-            replace(
-                base,
-                model="volatility_adjusted",
-                base_slippage_rate=base.base_slippage_rate * 2.0,
-            )
+        "zero_slippage_baseline": ZeroSlippageBaselineCostModel(
+            replace(base, model="zero_slippage_baseline")
         ),
-        "stress": StressCostModel(replace(base, model="stress")),
-        "zero_slippage": FixedCostModel(
-            replace(base, model="fixed", base_slippage_rate=0.0, max_slippage_rate=0.0)
+        "normal": DynamicCostModel(replace(base, model="dynamic")),
+        "high_slippage": HighSlippageCostModel(
+            replace(base, model="high_slippage")
+        ),
+        "stress": StressDynamicCostModel(
+            replace(base, model="stress")
         ),
     }
 

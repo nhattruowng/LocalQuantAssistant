@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
 from config.settings import ReasoningBrainSettings
 from reasoning.confluence_engine import ConfluenceEngine
@@ -14,6 +14,9 @@ from reasoning.setup_classifier import SetupClassifier, SetupType
 from signals.decision_trace import DecisionTrace
 from signals.models import RiskPlan, SignalType, StrategyType
 from signals.wait_reason import WaitReason
+
+if TYPE_CHECKING:
+    from ict.ict_context_builder import ICTContextBuilder
 
 
 @dataclass(frozen=True)
@@ -90,15 +93,24 @@ class MarketReasoningBrain:
         confluence_engine: ConfluenceEngine | None = None,
         conflict_resolver: ConflictResolver | None = None,
         setup_classifier: SetupClassifier | None = None,
+        ict_context_builder: ICTContextBuilder | None = None,
     ) -> None:
         self._settings = settings
         self._confluence_engine = confluence_engine or ConfluenceEngine()
         self._conflict_resolver = conflict_resolver or ConflictResolver()
         self._setup_classifier = setup_classifier or SetupClassifier()
+        if ict_context_builder is not None:
+            self._ict_context_builder = ict_context_builder
+        else:
+            try:
+                from ict.ict_context_builder import ICTContextBuilder as _ICTContextBuilder
+            except ImportError:
+                self._ict_context_builder = None
+            else:
+                self._ict_context_builder = _ICTContextBuilder(enabled=True)
 
     def decide(self, context: MarketReasoningContext) -> ReasoningDecision:
         """Run evidence -> confluence -> conflict -> final reasoning decision flow."""
-        evidence = self._collect_evidence(context)
         trace = DecisionTrace(
             symbol=context.symbol,
             timeframe=context.timeframe,
@@ -107,6 +119,7 @@ class MarketReasoningBrain:
             model_version=context.model_version,
             config_hash=None,
         )
+        evidence = self._collect_evidence(context, trace)
         confluence = self._confluence_engine.evaluate(evidence, trace=trace)
         conflict = self._conflict_resolver.evaluate(evidence)
         capped_penalty = min(conflict.conflict_penalty, self._settings.max_conflict_penalty)
@@ -185,10 +198,15 @@ class MarketReasoningBrain:
             decision_trace=trace.to_dict(),
         )
 
-    def _collect_evidence(self, context: MarketReasoningContext) -> list[Evidence]:
+    def _collect_evidence(
+        self,
+        context: MarketReasoningContext,
+        trace: DecisionTrace,
+    ) -> list[Evidence]:
         evidence: list[Evidence] = []
         evidence.extend(self._regime_evidence(context))
         evidence.extend(self._price_action_evidence(context))
+        evidence.extend(self._ict_evidence(context, trace))
         evidence.extend(self._strategy_evidence(context))
         evidence.extend(self._model_evidence(context))
         evidence.extend(self._volume_evidence(context))
@@ -258,6 +276,112 @@ class MarketReasoningBrain:
                 )
             )
         return evidence
+
+    def _ict_evidence(self, context: MarketReasoningContext, trace: DecisionTrace) -> list[Evidence]:
+        """Collect optional ICT evidence and append ict_confluence trace step."""
+        diagnostics = context.diagnostics
+        if self._ict_context_builder is None:
+            trace.add_step(
+                step_name="ict_confluence",
+                input_score=0.0,
+                output_score=0.0,
+                passed=True,
+                details={"enabled": False, "reason": "ICT dependencies unavailable."},
+                warnings=[],
+            )
+            return []
+        ict_meta = diagnostics.get("ict")
+        enabled = True
+        if isinstance(ict_meta, Mapping) and "enabled" in ict_meta:
+            enabled = bool(ict_meta.get("enabled", True))
+
+        if not enabled:
+            trace.add_step(
+                step_name="ict_confluence",
+                input_score=0.0,
+                output_score=0.0,
+                passed=True,
+                details={"enabled": False, "reason": "ICT module disabled."},
+                warnings=[],
+            )
+            return []
+
+        payload = diagnostics.get("ict_context", context.features.get("ict_context"))
+        if isinstance(payload, Mapping):
+            evidence = _parse_embedded_evidence(payload.get("evidence"))
+            ict_score = _clip(_as_float(payload.get("ict_score"), 0.0))
+            trace.add_step(
+                step_name="ict_confluence",
+                input_score=0.0,
+                output_score=round(ict_score, 4),
+                passed=ict_score >= 0.5,
+                details={
+                    "enabled": True,
+                    "liquidity_sweep_detected": bool(payload.get("liquidity_sweep_detected", False)),
+                    "sweep_direction": str(payload.get("sweep_direction", "NONE")),
+                    "fvg_detected": bool(payload.get("fvg_detected", False)),
+                    "fakeout_risk_score": _clip(_as_float(payload.get("fakeout_risk_score"), 0.0)),
+                    "evidence_count": len(evidence),
+                },
+                warnings=[],
+            )
+            return evidence
+
+        candles = self._extract_candles(context)
+        if candles is None or candles.empty:
+            trace.add_step(
+                step_name="ict_confluence",
+                input_score=0.0,
+                output_score=0.0,
+                passed=True,
+                details={
+                    "enabled": True,
+                    "reason": "No candle history provided for ICT analysis.",
+                },
+                warnings=[],
+            )
+            return []
+
+        target_index = len(candles) - 1
+        raw_index = diagnostics.get("candle_index")
+        if raw_index is not None:
+            try:
+                target_index = int(raw_index)
+            except (TypeError, ValueError):
+                target_index = len(candles) - 1
+
+        ict_context = self._ict_context_builder.build(candles, index=target_index)
+        trace.add_step(
+            step_name="ict_confluence",
+            input_score=0.0,
+            output_score=round(ict_context.ict_score, 4),
+            passed=ict_context.ict_score >= 0.5,
+            details={
+                "enabled": True,
+                "liquidity_sweep_detected": ict_context.liquidity_sweep_detected,
+                "sweep_direction": ict_context.sweep_direction,
+                "fvg_detected": ict_context.fvg_detected,
+                "fakeout_risk_score": ict_context.fakeout_risk_score,
+                "evidence_count": len(ict_context.evidence),
+            },
+            warnings=[item.reason for item in ict_context.evidence if item.evidence_type is EvidenceType.WARNING],
+        )
+        return list(ict_context.evidence)
+
+    def _extract_candles(self, context: MarketReasoningContext) -> Any | None:
+        """Read optional candle history payload for ICT analysis."""
+        diagnostics = context.diagnostics
+        candidates = [
+            diagnostics.get("candles"),
+            diagnostics.get("ohlcv"),
+            context.features.get("candles"),
+            context.features.get("ohlcv"),
+        ]
+        for candidate in candidates:
+            frame = _to_candles_dataframe(candidate)
+            if frame is not None and not frame.empty:
+                return frame
+        return None
 
     def _model_evidence(self, context: MarketReasoningContext) -> list[Evidence]:
         buy = _clip(context.probability(SignalType.BUY))
@@ -363,6 +487,31 @@ def _parse_evidence_item(value: object) -> Evidence | None:
         return None
 
 
+def _parse_embedded_evidence(value: object) -> list[Evidence]:
+    if not isinstance(value, list):
+        return []
+    parsed = [_parse_evidence_item(item) for item in value]
+    return [item for item in parsed if item is not None]
+
+
+def _to_candles_dataframe(value: object) -> Any | None:
+    if value is None:
+        return None
+    if hasattr(value, "iloc") and hasattr(value, "copy") and hasattr(value, "empty"):
+        return value.copy(deep=True)
+    if isinstance(value, list):
+        try:
+            import pandas as pd
+        except ImportError:
+            return None
+        rows = [item for item in value if isinstance(item, Mapping)]
+        if not rows:
+            return None
+        frame = pd.DataFrame.from_records(rows)
+        return frame if not frame.empty else None
+    return None
+
+
 def _signal_from_regime(regime: str) -> SignalType | None:
     if regime in {"UPTREND", "BREAKOUT_UP"}:
         return SignalType.BUY
@@ -388,4 +537,3 @@ def _as_float(value: object, default: float) -> float:
 
 def _clip(value: float) -> float:
     return max(0.0, min(float(value), 1.0))
-

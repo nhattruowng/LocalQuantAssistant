@@ -436,9 +436,13 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
                 validation_window_bars=int(
                     training_validation_config.get("validation_window_bars", 100)
                 ),
+                test_window_bars=int(
+                    training_validation_config.get("test_window_bars", 0)
+                ),
                 expanding_window=bool(
                     training_validation_config.get("expanding_window", True)
                 ),
+                purge_size=int(training_validation_config.get("purge_size", 0)),
                 embargo_size=int(training_validation_config.get("embargo_size", 0)),
             ),
             calibration=TrainingCalibrationSettings(
@@ -517,6 +521,22 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
                             backtest_config.get("slippage_rate", 0.0005),
                         ),
                     )
+                ),
+                atr_factor=float(execution_cost_config.get("atr_factor", 1.0)),
+                low_volume_threshold=float(
+                    execution_cost_config.get("low_volume_threshold", 0.7)
+                ),
+                low_volume_multiplier=float(
+                    execution_cost_config.get("low_volume_multiplier", 1.4)
+                ),
+                high_vol_multiplier=float(
+                    execution_cost_config.get("high_vol_multiplier", 1.6)
+                ),
+                extreme_vol_multiplier=float(
+                    execution_cost_config.get("extreme_vol_multiplier", 2.3)
+                ),
+                high_slippage_multiplier=float(
+                    execution_cost_config.get("high_slippage_multiplier", 2.0)
                 ),
             ),
         ),
@@ -669,14 +689,18 @@ def _validate_settings(settings: Settings) -> None:
         raise ValueError("Training and validation ratios must be positive.")
     if settings.training.test_ratio <= 0:
         raise ValueError("Test ratio must be positive.")
-    if settings.training.validation.method not in {"time_split", "walk_forward"}:
-        raise ValueError("Training validation method must be time_split or walk_forward.")
+    if settings.training.validation.method not in {"time_split", "walk_forward", "purged_cv"}:
+        raise ValueError("Training validation method must be time_split, walk_forward, or purged_cv.")
     if settings.training.validation.n_splits <= 0:
         raise ValueError("Training validation n_splits must be positive.")
     if settings.training.validation.train_window_bars <= 0:
         raise ValueError("Training validation train_window_bars must be positive.")
     if settings.training.validation.validation_window_bars <= 0:
         raise ValueError("Training validation validation_window_bars must be positive.")
+    if settings.training.validation.test_window_bars < 0:
+        raise ValueError("Training validation test_window_bars must be non-negative.")
+    if settings.training.validation.purge_size < 0:
+        raise ValueError("Training validation purge_size must be non-negative.")
     if settings.training.validation.embargo_size < 0:
         raise ValueError("Training validation embargo_size must be non-negative.")
     if settings.training.calibration.method not in {"none", "sigmoid", "isotonic"}:
@@ -696,7 +720,11 @@ def _validate_settings(settings: Settings) -> None:
     if settings.backtest.execution_cost is None:
         raise ValueError("Backtest execution_cost settings must be present.")
     if settings.backtest.execution_cost.model not in {
+        "zero_slippage_baseline",
         "fixed",
+        "dynamic",
+        "high_slippage",
+        "normal",
         "volatility_adjusted",
         "spread_aware",
         "stress",
@@ -710,6 +738,18 @@ def _validate_settings(settings: Settings) -> None:
         raise ValueError("Backtest execution cost rates must be non-negative.")
     if settings.backtest.execution_cost.stress_multiplier < 0:
         raise ValueError("Backtest stress_multiplier must be non-negative.")
+    if settings.backtest.execution_cost.atr_factor < 0:
+        raise ValueError("Backtest atr_factor must be non-negative.")
+    if settings.backtest.execution_cost.low_volume_threshold < 0:
+        raise ValueError("Backtest low_volume_threshold must be non-negative.")
+    if settings.backtest.execution_cost.low_volume_multiplier < 0:
+        raise ValueError("Backtest low_volume_multiplier must be non-negative.")
+    if settings.backtest.execution_cost.high_vol_multiplier < 0:
+        raise ValueError("Backtest high_vol_multiplier must be non-negative.")
+    if settings.backtest.execution_cost.extreme_vol_multiplier < 0:
+        raise ValueError("Backtest extreme_vol_multiplier must be non-negative.")
+    if settings.backtest.execution_cost.high_slippage_multiplier < 0:
+        raise ValueError("Backtest high_slippage_multiplier must be non-negative.")
     if settings.backtest.max_holding_bars <= 0:
         raise ValueError("Backtest max_holding_bars must be positive.")
     if not (
