@@ -80,19 +80,20 @@ def infer_wait_reason(
         return WaitReason.WAIT_SAFETY_FILTER
 
     if (
+        "risk plan failed" in text
+        or "no risk plan was built" in text
+        or "data quality" in text
+        or bool(diagnostics.get("blocked_by_data_quality", False))
+    ):
+        return WaitReason.WAIT_DATA_QUALITY
+
+    if (
         "risk guard" in text
         or "circuit breaker" in text
         or bool(diagnostics.get("blocked_by_risk_guard", False))
         or diagnostics.get("risk_guard_state") is not None
     ):
         return WaitReason.WAIT_RISK_BLOCK
-
-    if (
-        "risk plan failed" in text
-        or "no risk plan was built" in text
-        or "data quality" in text
-    ):
-        return WaitReason.WAIT_DATA_QUALITY
 
     if (
         "conflict with a small score margin" in text

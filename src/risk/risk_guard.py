@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 from config.settings import RiskGuardSettings
+from data.data_quality import DataQualityAction, DataQualityReport, DataQualitySeverity
 from paper.account import PaperAccountSnapshot, PaperTrade
 from risk.circuit_breaker import CircuitBreaker, CircuitBreakerState
 from signals.models import SignalType, TradeSetup
@@ -155,6 +156,8 @@ class RiskGuard:
             reasons.append("Blocked by risk guard: risk_reward below minimum")
         if any(_filter_blocked(item) for item in setup.safety_filters):
             reasons.append("Blocked by risk guard: safety filter blocked setup")
+        if self._settings.hard_block_data_quality_fail and _data_quality_blocked(diagnostics.get("data_quality")):
+            reasons.append("Blocked by risk guard: data quality failed")
         if any(_memory_blocked(item) for item in diagnostics.get("memory_adjustments", [])):
             reasons.append("Blocked by risk guard: strategy memory block")
         multi_timeframe = diagnostics.get("multi_timeframe", {})
@@ -238,6 +241,20 @@ def _filter_blocked(item: object) -> bool:
 def _memory_blocked(item: object) -> bool:
     """Return True when a serialized memory adjustment blocked a strategy."""
     return isinstance(item, dict) and bool(item.get("blocked", False))
+
+
+def _data_quality_blocked(report: object) -> bool:
+    """Return True when a serialized data quality report requires a hard block."""
+    if isinstance(report, DataQualityReport):
+        return (
+            report.severity is DataQualitySeverity.HIGH
+            or report.recommended_action is DataQualityAction.BLOCK
+        )
+    if not isinstance(report, dict):
+        return False
+    severity = str(report.get("severity", "")).upper()
+    action = str(report.get("recommended_action", "")).upper()
+    return severity == DataQualitySeverity.HIGH.value or action == DataQualityAction.BLOCK.value
 
 
 def _optional_float(value: object) -> float | None:

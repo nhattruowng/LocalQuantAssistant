@@ -8,6 +8,7 @@ import json
 from typing import Mapping
 
 from config.settings import Settings
+from data.data_quality import DataQualityAction, DataQualityReport, DataQualitySeverity
 from regime.market_regime import MarketRegime
 from reasoning.market_reasoning_brain import MarketReasoningBrain, MarketReasoningContext
 from risk.risk_guard import RiskGuard, RiskGuardContext
@@ -92,6 +93,7 @@ class SignalEngine:
         higher_timeframe_features: Mapping[str, Mapping[str, object]] | None = None,
         higher_timeframe_regimes: Mapping[str, MarketRegime | str] | None = None,
         multi_timeframe_enabled: bool | None = None,
+        data_quality_report: DataQualityReport | Mapping[str, object] | None = None,
     ) -> TradeSetup:
         """Generate a complete trade setup recommendation."""
         higher_features = dict(higher_timeframe_features or {})
@@ -136,9 +138,35 @@ class SignalEngine:
             "model_version": model_version,
             "fallback_reason": fallback_reason,
         }
-        diagnostics: dict[str, object] | None = None
+        data_quality = _coerce_data_quality_report(
+            data_quality_report
+            or features.get("data_quality_report")
+            or features.get("data_quality")
+        )
+        base_diagnostics: dict[str, object] = {}
+        if data_quality is not None:
+            base_diagnostics["data_quality"] = data_quality.to_dict()
+        if _should_hard_block_data_quality(self._settings, data_quality):
+            return self._wait(
+                context,
+                [
+                    "Data quality gate blocked signal: "
+                    + "; ".join(data_quality.issues or ["severity is HIGH."]),
+                ],
+                StrategyType.NONE,
+                diagnostics={
+                    **base_diagnostics,
+                    "blocked_by_risk_guard": True,
+                    "blocked_by_data_quality": True,
+                },
+                model_selection=model_selection,
+                wait_reason=WaitReason.WAIT_DATA_QUALITY.value,
+            )
+
+        diagnostics: dict[str, object] | None = dict(base_diagnostics) if base_diagnostics else None
         if self._adaptive_strategy_enabled():
-            decision, diagnostics = self._adaptive_decision(context)
+            decision, decision_diagnostics = self._adaptive_decision(context)
+            diagnostics = _merge_diagnostics(base_diagnostics, decision_diagnostics)
             if decision is None:
                 return self._wait(
                     context,
@@ -148,7 +176,8 @@ class SignalEngine:
                     model_selection=model_selection,
                 )
         elif self._ensemble_enabled():
-            decision, diagnostics = self._ensemble_decision(context)
+            decision, decision_diagnostics = self._ensemble_decision(context)
+            diagnostics = _merge_diagnostics(base_diagnostics, decision_diagnostics)
             if decision is None:
                 return self._wait(
                     context,
@@ -163,6 +192,7 @@ class SignalEngine:
                 return self._wait(
                     context,
                     [f"No strategy for regime {context.regime_value()}."],
+                    diagnostics=diagnostics,
                     model_selection=model_selection,
                 )
             decision = strategy.evaluate(context)
@@ -176,7 +206,7 @@ class SignalEngine:
                 model_selection=model_selection,
             )
 
-        risk_plan = self._risk_plan_for(context, decision, features, model_selection)
+        risk_plan = self._risk_plan_for(context, decision, features, model_selection, diagnostics)
         if isinstance(risk_plan, TradeSetup):
             return risk_plan
         safety = SafetyFilterEngine(self._settings.safety_filters).evaluate(context, decision)
@@ -226,6 +256,11 @@ class SignalEngine:
         if self._risk_guard is not None and self._risk_guard_context is not None:
             guard = self._risk_guard.evaluate(setup, self._risk_guard_context)
             if not guard.allowed:
+                guard_wait_reason = (
+                    WaitReason.WAIT_DATA_QUALITY.value
+                    if any("data quality" in reason.lower() for reason in guard.reasons)
+                    else None
+                )
                 return self._wait(
                     context,
                     guard.reasons,
@@ -238,6 +273,7 @@ class SignalEngine:
                         "blocked_by_risk_guard": True,
                     },
                     model_selection=model_selection,
+                    wait_reason=guard_wait_reason,
                 )
         return setup
 
@@ -396,6 +432,7 @@ class SignalEngine:
         decision: StrategyDecision,
         features: Mapping[str, float],
         model_selection: dict[str, str | None] | None = None,
+        diagnostics: dict[str, object] | None = None,
     ) -> RiskPlan | TradeSetup:
         """Build a risk plan or a WAIT setup when risk planning fails."""
         try:
@@ -405,6 +442,7 @@ class SignalEngine:
                 context,
                 [*decision.reasons, f"Risk plan failed: {error}."],
                 decision.strategy,
+                diagnostics=diagnostics,
                 model_selection=model_selection,
             )
 
@@ -413,6 +451,7 @@ class SignalEngine:
                 context,
                 [*decision.reasons, "No risk plan was built."],
                 decision.strategy,
+                diagnostics=diagnostics,
                 model_selection=model_selection,
             )
         return risk_plan
@@ -782,6 +821,7 @@ class SignalEngine:
                 "calibrated_probabilities": _probability_values(context.calibrated_probabilities),
             },
             "multi_timeframe": mtf_explanation,
+            "data_quality": (diagnostics or {}).get("data_quality"),
             "final_decision_summary": summary,
         }
 
@@ -1018,6 +1058,20 @@ class SignalEngine:
             details["multi_timeframe"] = diagnostics["multi_timeframe"]
         if diagnostics and isinstance(diagnostics.get("drift_report"), dict):
             details["drift_report"] = diagnostics["drift_report"]
+        data_quality = _coerce_data_quality_report(
+            (diagnostics or {}).get("data_quality")
+            if isinstance(diagnostics, dict)
+            else None
+        )
+        if data_quality is not None:
+            trace.add_step(
+                step_name="data_quality",
+                input_score=1.0,
+                output_score=data_quality.score,
+                passed=data_quality.recommended_action is not DataQualityAction.BLOCK,
+                details=data_quality.to_dict(),
+                warnings=list(data_quality.issues),
+            )
         trace.add_step(
             step_name="final_decision",
             input_score=round(final_score, 4),
@@ -1278,6 +1332,36 @@ def _drawdown_multiplier(context: RiskGuardContext | None) -> float:
     if drawdown >= 0.02:
         return 0.75
     return 1.0
+
+
+def _merge_diagnostics(
+    base: Mapping[str, object] | None,
+    override: Mapping[str, object] | None,
+) -> dict[str, object]:
+    """Merge optional diagnostic payloads without mutating either input."""
+    return {**dict(base or {}), **dict(override or {})}
+
+
+def _coerce_data_quality_report(value: object) -> DataQualityReport | None:
+    """Parse a data quality report from an object or serialized mapping."""
+    if isinstance(value, DataQualityReport):
+        return value
+    if isinstance(value, Mapping):
+        return DataQualityReport.from_mapping(value)
+    return None
+
+
+def _should_hard_block_data_quality(
+    settings: Settings,
+    report: DataQualityReport | None,
+) -> bool:
+    """Return True when data quality should stop signal generation."""
+    if report is None or not settings.risk_guard.hard_block_data_quality_fail:
+        return False
+    return (
+        report.severity is DataQualitySeverity.HIGH
+        or report.recommended_action is DataQualityAction.BLOCK
+    )
 
 
 def _has_higher_timeframe_conflict(context: SignalContext) -> bool:

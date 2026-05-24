@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 from config.loader import load_settings
 from config.settings import RiskGuardSettings
+from data.data_quality import DataQualityAction, DataQualitySeverity
 from paper.account import PaperAccountSnapshot, PaperTrade
 from risk.circuit_breaker import CircuitBreakerState
 from risk.risk_guard import RiskGuard, RiskGuardContext
@@ -80,6 +81,27 @@ def test_risk_guard_blocks_unstable_regime():
 
     assert decision.allowed is False
     assert any("regime" in reason for reason in decision.reasons)
+
+
+def test_risk_guard_blocks_high_severity_data_quality():
+    guard = RiskGuard(_settings(hard_block_data_quality_fail=True))
+    decision = guard.evaluate(
+        _setup(
+            strategy_diagnostics={
+                "data_quality": {
+                    "passed": False,
+                    "score": 0.1,
+                    "issues": ["Duplicated timestamp detected in 2 candle rows."],
+                    "severity": DataQualitySeverity.HIGH.value,
+                    "recommended_action": DataQualityAction.BLOCK.value,
+                }
+            }
+        ),
+        _context(),
+    )
+
+    assert decision.allowed is False
+    assert any("data quality" in reason for reason in decision.reasons)
 
 
 def test_risk_guard_logs_event():

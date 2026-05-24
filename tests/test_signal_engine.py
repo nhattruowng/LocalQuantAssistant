@@ -9,6 +9,7 @@ import pytest
 
 from config.loader import load_settings
 from config.settings import Settings
+from data.data_quality import DataQualityAction, DataQualityReport, DataQualitySeverity
 from regime.market_regime import MarketRegime
 from signals.models import SignalType, StrategyType
 from signals.signal_engine import SignalEngine
@@ -93,6 +94,44 @@ def test_signal_engine_returns_wait_when_probability_is_low():
     trace = (setup.strategy_diagnostics or {}).get("decision_trace", {})
     assert trace["steps"][-1]["step_name"] == "final_decision"
     assert trace["steps"][-1]["details"]["wait_reason"] == WaitReason.WAIT_LOW_CONFIDENCE.value
+
+
+def test_signal_engine_blocks_high_severity_data_quality(settings: Settings):
+    engine = SignalEngine(settings)
+    report = DataQualityReport(
+        passed=False,
+        score=0.2,
+        issues=["OHLC invalid range detected in 1 candle rows."],
+        severity=DataQualitySeverity.HIGH,
+        recommended_action=DataQualityAction.BLOCK,
+    )
+
+    setup = engine.generate(
+        symbol="BTC/USDT",
+        timeframe="15m",
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+        market_regime=MarketRegime.UPTREND,
+        features={
+            **_base_features(),
+            "close": 101.0,
+            "ema_20": 100.0,
+            "ema_50": 95.0,
+            "rsi_14": 55.0,
+        },
+        probabilities={"BUY": 0.70, "SELL": 0.10, "WAIT": 0.20},
+        data_quality_report=report,
+    )
+
+    trace = (setup.strategy_diagnostics or {}).get("decision_trace", {})
+    data_quality_step = next(step for step in trace["steps"] if step["step_name"] == "data_quality")
+
+    assert setup.signal is SignalType.WAIT
+    assert setup.wait_reason == WaitReason.WAIT_DATA_QUALITY.value
+    assert setup.blocked_by_risk_guard is True
+    assert setup.explanation_v2["data_quality"]["severity"] == "HIGH"
+    assert trace["wait_reason"] == WaitReason.WAIT_DATA_QUALITY.value
+    assert data_quality_step["passed"] is False
+    assert data_quality_step["details"]["recommended_action"] == "BLOCK"
 
 
 def test_signal_engine_returns_wait_when_risk_reward_is_too_low(
