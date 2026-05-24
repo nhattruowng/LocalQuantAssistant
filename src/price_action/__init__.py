@@ -2,14 +2,21 @@
 
 from .candle_analyzer import CandleAnalyzer
 from .structure_analyzer import PriceActionContext, StructureAnalyzer
-from .swing_detector import SwingDetector, SwingPoint, SwingType
+from .swing_detector import (
+    SwingDetectionResult,
+    SwingDetector,
+    SwingDetectorConfig,
+    SwingPoint,
+    SwingType,
+)
 
 __all__ = [
     "CandleAnalyzer",
     "PriceActionContext",
     "StructureAnalyzer",
+    "SwingDetectionResult",
     "SwingDetector",
+    "SwingDetectorConfig",
     "SwingPoint",
     "SwingType",
 ]
-
