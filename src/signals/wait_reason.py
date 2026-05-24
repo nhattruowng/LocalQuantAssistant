@@ -22,6 +22,9 @@ class WaitReason(str, Enum):
     WAIT_NO_CLEAR_SETUP = "WAIT_NO_CLEAR_SETUP"
 
 
+WAIT_REASON = WaitReason
+
+
 def normalize_wait_reason(value: object) -> WaitReason:
     """Return a valid wait reason or fallback to WAIT_NO_CLEAR_SETUP."""
     if isinstance(value, WaitReason):
@@ -70,15 +73,19 @@ def infer_wait_reason(
         return WaitReason.WAIT_HIGH_VOLATILITY
 
     if (
+        "blocked by safety filter" in text
+        or bool(diagnostics.get("blocked_by_safety_filter", False))
+        or _has_blocked_filter(diagnostics)
+    ):
+        return WaitReason.WAIT_SAFETY_FILTER
+
+    if (
         "risk guard" in text
         or "circuit breaker" in text
         or bool(diagnostics.get("blocked_by_risk_guard", False))
         or diagnostics.get("risk_guard_state") is not None
     ):
         return WaitReason.WAIT_RISK_BLOCK
-
-    if "blocked by safety filter" in text or _has_blocked_filter(diagnostics):
-        return WaitReason.WAIT_SAFETY_FILTER
 
     if (
         "risk plan failed" in text
@@ -130,3 +137,10 @@ def _has_blocked_filter(diagnostics: Mapping[str, object]) -> bool:
         for item in filters
     )
 
+
+__all__ = [
+    "WAIT_REASON",
+    "WaitReason",
+    "infer_wait_reason",
+    "normalize_wait_reason",
+]

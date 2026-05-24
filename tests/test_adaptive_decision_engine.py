@@ -14,6 +14,7 @@ from signals.models import (
     StrategyOpinion,
     StrategyType,
 )
+from signals.wait_reason import WaitReason
 
 
 def test_high_score_above_threshold_returns_signal(settings: Settings):
@@ -49,6 +50,7 @@ def test_buy_sell_conflict_small_gap_returns_wait(settings: Settings):
 
     assert decision.final_signal is SignalType.WAIT
     assert decision.conflict_result.has_conflict is True
+    assert decision.wait_reason == WaitReason.WAIT_STRATEGY_CONFLICT
 
 
 def test_high_uncertainty_increases_threshold(settings: Settings):

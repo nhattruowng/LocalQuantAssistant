@@ -194,7 +194,11 @@ class SignalEngine:
                 [*decision.reasons, *safety.reasons],
                 decision.strategy,
                 risk_plan,
-                diagnostics={**diagnostics, "blocked_by_risk_guard": True},
+                diagnostics={
+                    **diagnostics,
+                    "blocked_by_risk_guard": True,
+                    "blocked_by_safety_filter": True,
+                },
                 model_selection=model_selection,
             )
         risk_plan = self._apply_dynamic_position_sizing(context, decision, risk_plan, diagnostics)
@@ -993,6 +997,7 @@ class SignalEngine:
             final_confidence=round(final_confidence, 4),
             model_version=(model_selection or {}).get("model_version"),
             config_hash=None,
+            wait_reason=wait_reason,
         )
         final_score = 0.0
         if isinstance(diagnostics, dict):

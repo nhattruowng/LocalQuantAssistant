@@ -161,8 +161,7 @@ class MarketReasoningBrain:
         conflict_details = conflict.to_dict()
         conflict_details["capped_conflict_penalty"] = round(capped_penalty, 8)
 
-        trace.final_signal = signal.value
-        trace.final_confidence = round(confidence, 4)
+        trace.set_final(signal, round(confidence, 4), wait_reason=wait_reason)
         trace.add_step(
             step_name="final_decision",
             input_score=round(final_score, 4),

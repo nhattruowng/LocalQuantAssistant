@@ -244,7 +244,11 @@ def test_strategy_ensemble_conflicting_buy_sell_returns_wait(settings: Settings)
     )
 
     assert setup.signal is SignalType.WAIT
+    assert setup.wait_reason == WaitReason.WAIT_STRATEGY_CONFLICT.value
     assert any("conflict" in reason for reason in setup.reasons)
+    trace = (setup.strategy_diagnostics or {}).get("decision_trace", {})
+    assert trace["wait_reason"] == WaitReason.WAIT_STRATEGY_CONFLICT.value
+    assert trace["steps"][-1]["details"]["wait_reason"] == WaitReason.WAIT_STRATEGY_CONFLICT.value
 
 
 def test_strategy_ensemble_disabled_keeps_hard_mapping(settings: Settings):

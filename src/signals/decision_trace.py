@@ -58,6 +58,7 @@ class DecisionTrace:
     timeframe: str
     final_signal: str = "WAIT"
     final_confidence: float = 0.0
+    wait_reason: str | None = None
     trace_id: str = field(default_factory=lambda: str(uuid4()))
     model_version: str | None = None
     config_hash: str | None = None
@@ -76,10 +77,16 @@ class DecisionTrace:
         """Append one trace-level warning."""
         self.warnings.append(warning)
 
-    def set_final(self, final_signal: str | Enum, final_confidence: float) -> None:
+    def set_final(
+        self,
+        final_signal: str | Enum,
+        final_confidence: float,
+        wait_reason: str | Enum | None = None,
+    ) -> None:
         """Set the final decision without rebuilding the trace."""
         self.final_signal = _enum_value(final_signal)
         self.final_confidence = float(final_confidence)
+        self.wait_reason = _enum_value(wait_reason) if wait_reason is not None else None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize trace into API-friendly primitive values."""
@@ -92,6 +99,7 @@ class DecisionTrace:
             "steps": [step.to_dict() for step in self.steps],
             "final_signal": self.final_signal,
             "final_confidence": self.final_confidence,
+            "wait_reason": self.wait_reason,
             "created_at": self.created_at.isoformat(),
             "warnings": list(self.warnings),
         }

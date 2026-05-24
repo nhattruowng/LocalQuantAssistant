@@ -7,6 +7,7 @@ import json
 from reasoning.evidence import Evidence, EvidenceDirection, EvidenceType
 from signals.decision_trace import DecisionStep, DecisionTrace
 from signals.models import SignalType
+from signals.wait_reason import WaitReason
 
 
 def test_create_evidence() -> None:
@@ -75,6 +76,16 @@ def test_set_final_signal() -> None:
 
     assert trace.final_signal == "BUY"
     assert trace.final_confidence == 0.81
+
+
+def test_set_final_wait_reason() -> None:
+    trace = DecisionTrace(symbol="BNB/USDT", timeframe="15m")
+
+    trace.set_final(SignalType.WAIT, 0.42, wait_reason=WaitReason.WAIT_RISK_BLOCK)
+
+    payload = json.loads(trace.to_json())
+    assert payload["final_signal"] == "WAIT"
+    assert payload["wait_reason"] == WaitReason.WAIT_RISK_BLOCK.value
 
 
 def test_trace_to_json_serialization() -> None:
