@@ -34,6 +34,7 @@ class PriceStructureContext:
     rejection_wick_score: float = 0.0
     range_quality_score: float = 0.5
     chasing_penalty: float = 0.0
+    trend_exhaustion_score: float = 0.0
     evidence: list[Evidence] = field(default_factory=list)
     bos_direction: str | None = None
     choch_direction: str | None = None
@@ -53,6 +54,7 @@ class PriceStructureContext:
             "rejection_wick_score": self.rejection_wick_score,
             "range_quality_score": self.range_quality_score,
             "chasing_penalty": self.chasing_penalty,
+            "trend_exhaustion_score": self.trend_exhaustion_score,
             "evidence": [item.to_dict() for item in self.evidence],
         }
 
@@ -132,12 +134,13 @@ class StructureAnalyzer:
             choch_detected=choch_detected,
             choch_direction=choch_direction,
             structure_score=structure_score,
-            evidence=evidence,
-            pullback_quality_score=round(pullback_quality, 4),
+            evidence=[*evidence, *candle.evidence],
+            pullback_quality_score=max(round(pullback_quality, 4), candle.pullback_quality_score),
             candle_strength_score=candle.candle_strength_score,
             rejection_wick_score=candle.rejection_wick_score,
             range_quality_score=candle.range_quality_score,
             chasing_penalty=candle.chasing_penalty,
+            trend_exhaustion_score=candle.trend_exhaustion_score,
         )
         _append_trace(trace, context)
         return context
