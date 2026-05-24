@@ -7,8 +7,9 @@ from datetime import UTC, datetime
 import pandas as pd
 
 from price_action.candle_analyzer import CandleAnalyzer
-from price_action.structure_analyzer import StructureAnalyzer
+from price_action.structure_analyzer import PriceActionContext, StructureAnalyzer
 from price_action.swing_detector import SwingDetector
+from signals.decision_trace import DecisionTrace
 
 
 def test_uptrend_hh_hl_detected() -> None:
@@ -36,6 +37,7 @@ def test_bos_detected() -> None:
     context = analyzer.analyze(candles)
 
     assert context.bos_detected is True
+    assert context.bos_direction == "BULLISH"
     assert context.choch_detected is False
 
 
@@ -47,6 +49,56 @@ def test_choch_detected() -> None:
 
     assert context.choch_detected is True
     assert context.bos_detected is False
+
+
+def test_range_structure_detected() -> None:
+    analyzer = _analyzer()
+    candles = _candles_from_close([100, 103, 101, 102.5, 100.5, 102, 101])
+
+    context = analyzer.analyze(candles)
+
+    assert context.structure == "RANGE"
+    assert 0.0 <= context.structure_score <= 1.0
+
+
+def test_bearish_choch_detected() -> None:
+    analyzer = _analyzer()
+    candles = _candles_from_close([100, 103, 101, 105, 103, 107, 99])
+
+    context = analyzer.analyze(candles)
+
+    assert context.choch_detected is True
+    assert context.choch_direction == "BEARISH"
+    assert context.bos_detected is False
+
+
+def test_structure_analyzer_adds_decision_trace_details() -> None:
+    analyzer = _analyzer()
+    trace = DecisionTrace(symbol="BTC/USDT", timeframe="1h")
+    candles = _candles_from_close([100, 103, 101, 105, 103, 106, 109])
+
+    context = analyzer.analyze(candles, trace=trace)
+
+    payload = trace.to_dict()
+    assert payload["steps"][-1]["step_name"] == "market_structure"
+    assert payload["steps"][-1]["details"]["structure"] == context.structure
+    assert payload["steps"][-1]["details"]["bos_direction"] == "BULLISH"
+
+
+def test_price_action_context_keeps_legacy_constructor() -> None:
+    context = PriceActionContext(
+        structure="UNKNOWN",
+        bos_detected=False,
+        choch_detected=False,
+        pullback_quality_score=0.5,
+        candle_strength_score=0.5,
+        rejection_wick_score=0.0,
+        range_quality_score=0.5,
+        chasing_penalty=0.0,
+    )
+
+    assert context.bos_direction is None
+    assert context.structure_score == 0.0
 
 
 def test_large_rejection_wick_scores_high() -> None:
@@ -120,4 +172,3 @@ def _candles_from_close(
             "atr_14": [atr] * rows,
         }
     )
-
