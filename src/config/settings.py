@@ -143,6 +143,10 @@ class RiskGuardSettings:
     cooldown_minutes_after_block: int = 60
     require_calibrated_model: bool = False
     block_low_regime_confidence: bool = False
+    hard_block_data_quality_fail: bool = True
+    hard_block_extreme_volatility: bool = True
+    hard_block_daily_drawdown: bool = True
+    hard_block_risk_reward_fail: bool = True
 
 
 @dataclass(frozen=True)
@@ -195,6 +199,17 @@ class ReasoningBrainSettings:
     strong_conflict_threshold: float = 0.25
     allow_reduced_size_for_medium_score: bool = True
     max_conflict_penalty: float = 0.30
+
+
+@dataclass(frozen=True)
+class TraceSettings:
+    """Decision trace emission settings."""
+
+    enabled: bool = True
+    include_evidence: bool = True
+    include_score_delta: bool = True
+    include_config_hash: bool = True
+    include_model_version: bool = True
 
 
 @dataclass(frozen=True)
@@ -360,6 +375,7 @@ class Settings:
     market_regime: MarketRegimeSettings
     adaptive_strategy: AdaptiveStrategySettings
     reasoning_brain: ReasoningBrainSettings
+    trace: TraceSettings
     model: ModelSettings
     risk: RiskSettings
     safety_filters: SafetyFilterSettings

@@ -73,6 +73,13 @@ reasoning_brain:
   allow_reduced_size_for_medium_score: true
   max_conflict_penalty: 0.30
 
+trace:
+  enabled: true
+  include_evidence: true
+  include_score_delta: true
+  include_config_hash: true
+  include_model_version: true
+
 model:
   path: null
   fallback_action_probability: 0.62
@@ -110,6 +117,10 @@ risk_guard:
   cooldown_minutes_after_block: 60
   require_calibrated_model: false
   block_low_regime_confidence: false
+  hard_block_data_quality_fail: true
+  hard_block_extreme_volatility: true
+  hard_block_daily_drawdown: true
+  hard_block_risk_reward_fail: true
 
 signal:
   min_confidence: 0.55

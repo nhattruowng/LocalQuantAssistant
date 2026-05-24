@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from enum import Enum
 import json
 from typing import Any
 from uuid import uuid4
@@ -55,8 +56,8 @@ class DecisionTrace:
 
     symbol: str
     timeframe: str
-    final_signal: str
-    final_confidence: float
+    final_signal: str = "WAIT"
+    final_confidence: float = 0.0
     trace_id: str = field(default_factory=lambda: str(uuid4()))
     model_version: str | None = None
     config_hash: str | None = None
@@ -75,6 +76,11 @@ class DecisionTrace:
         """Append one trace-level warning."""
         self.warnings.append(warning)
 
+    def set_final(self, final_signal: str | Enum, final_confidence: float) -> None:
+        """Set the final decision without rebuilding the trace."""
+        self.final_signal = _enum_value(final_signal)
+        self.final_confidence = float(final_confidence)
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize trace into API-friendly primitive values."""
         return {
@@ -92,4 +98,18 @@ class DecisionTrace:
 
     def to_json(self) -> str:
         """Serialize trace as JSON."""
-        return json.dumps(self.to_dict())
+        return json.dumps(self.to_dict(), default=_json_default)
+
+
+def _enum_value(value: str | Enum) -> str:
+    if isinstance(value, Enum):
+        return str(value.value)
+    return str(value)
+
+
+def _json_default(value: object) -> object:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, Enum):
+        return value.value
+    return str(value)

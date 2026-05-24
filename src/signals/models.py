@@ -8,18 +8,14 @@ from enum import Enum
 import json
 from typing import TYPE_CHECKING, Mapping
 
+from domain.trading_types import SignalDirection
 from regime.market_regime import MarketRegime
 
 if TYPE_CHECKING:
     from strategy.memory import MemoryAdjustment
 
 
-class SignalType(str, Enum):
-    """Final signal types produced by the system."""
-
-    BUY = "BUY"
-    SELL = "SELL"
-    WAIT = "WAIT"
+SignalType = SignalDirection
 
 
 class StrategyType(str, Enum):

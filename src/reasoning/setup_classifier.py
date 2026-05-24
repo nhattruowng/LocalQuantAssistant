@@ -2,26 +2,9 @@
 
 from __future__ import annotations
 
-from enum import Enum
-
+from domain.trading_types import SetupType
 from reasoning.conflict_resolver import ConflictLevel, ConflictResult
 from reasoning.evidence import Evidence, EvidenceType
-
-
-class SetupType(str, Enum):
-    """High-level setup taxonomy for explanation and analytics."""
-
-    TREND_CONTINUATION_PULLBACK = "TREND_CONTINUATION_PULLBACK"
-    TREND_BREAKOUT_CONTINUATION = "TREND_BREAKOUT_CONTINUATION"
-    TREND_EXHAUSTION_WARNING = "TREND_EXHAUSTION_WARNING"
-    CLEAN_BREAKOUT = "CLEAN_BREAKOUT"
-    RANGE_BREAKOUT_PREPARATION = "RANGE_BREAKOUT_PREPARATION"
-    FAKEOUT_RISK = "FAKEOUT_RISK"
-    LIQUIDITY_SWEEP_REVERSAL = "LIQUIDITY_SWEEP_REVERSAL"
-    RANGE_REVERSION = "RANGE_REVERSION"
-    MEAN_REVERSION_DANGER = "MEAN_REVERSION_DANGER"
-    CONFLICTED = "CONFLICTED"
-    NO_CLEAR_SETUP = "NO_CLEAR_SETUP"
 
 
 class SetupClassifier:
@@ -85,4 +68,3 @@ def _contains(
         if any(keyword in blob for keyword in keywords):
             return True
     return False
-

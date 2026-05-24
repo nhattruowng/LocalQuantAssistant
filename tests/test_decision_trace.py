@@ -6,6 +6,7 @@ import json
 
 from reasoning.evidence import Evidence, EvidenceDirection, EvidenceType
 from signals.decision_trace import DecisionStep, DecisionTrace
+from signals.models import SignalType
 
 
 def test_create_evidence() -> None:
@@ -15,7 +16,7 @@ def test_create_evidence() -> None:
         direction=EvidenceDirection.BUY,
         score=0.78,
         confidence=0.82,
-        weight=1.1,
+        weight=1.0,
         evidence_type=EvidenceType.SUPPORT,
         reason="RSI crossed above 50 with trend alignment.",
         impact_on_score=0.09,
@@ -67,6 +68,15 @@ def test_append_step() -> None:
     assert trace.warnings == ["Signal quality degraded after risk checks."]
 
 
+def test_set_final_signal() -> None:
+    trace = DecisionTrace(symbol="BNB/USDT", timeframe="15m")
+
+    trace.set_final(SignalType.BUY, 0.81)
+
+    assert trace.final_signal == "BUY"
+    assert trace.final_confidence == 0.81
+
+
 def test_trace_to_json_serialization() -> None:
     trace = DecisionTrace(
         symbol="SOL/USDT",
@@ -90,6 +100,28 @@ def test_trace_to_json_serialization() -> None:
     assert payload["created_at"]
 
 
+def test_trace_json_allows_nested_details_for_frontend_copy() -> None:
+    trace = DecisionTrace(symbol="ADA/USDT", timeframe="1h")
+    now = trace.created_at
+    trace.add_step(
+        step_name="Reasoning",
+        input_score=0.4,
+        output_score=0.7,
+        details={
+            "nested": {"signal": SignalType.SELL, "timestamp": now},
+            "items": [SignalType.WAIT, now],
+        },
+    )
+    trace.set_final("SELL", 0.7)
+
+    payload = json.loads(trace.to_json())
+
+    assert payload["final_signal"] == "SELL"
+    assert payload["steps"][0]["details"]["nested"]["signal"] == "SELL"
+    assert payload["steps"][0]["details"]["nested"]["timestamp"] == now.isoformat()
+    assert payload["steps"][0]["details"]["items"][0] == "WAIT"
+
+
 def test_nullable_model_version_and_config_hash_do_not_crash() -> None:
     trace = DecisionTrace(
         symbol="XRP/USDT",
@@ -110,4 +142,3 @@ def test_nullable_model_version_and_config_hash_do_not_crash() -> None:
     assert payload["model_version"] is None
     assert payload["config_hash"] is None
     assert payload["steps"][0]["delta"] == 0.0
-

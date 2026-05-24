@@ -6,24 +6,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 import json
 
+from domain.trading_types import ConflictLevel, RecommendedAction
 from reasoning.evidence import Evidence, EvidenceDirection, EvidenceType
 
-
-class ConflictLevel(str, Enum):
-    """Severity buckets for evidence conflicts."""
-
-    NONE = "NONE"
-    LOW = "LOW"
-    MEDIUM = "MEDIUM"
-    HIGH = "HIGH"
-
-
-class ConflictAction(str, Enum):
-    """Risk action recommended by the conflict resolver."""
-
-    CONTINUE = "CONTINUE"
-    REDUCE_SIZE = "REDUCE_SIZE"
-    WAIT = "WAIT"
+ConflictAction = RecommendedAction
 
 
 class ConflictType(str, Enum):

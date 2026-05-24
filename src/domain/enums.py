@@ -14,6 +14,7 @@ class TradingAction(str, Enum):
     SELL = "SELL"
     WAIT = "WAIT"
 
+
 class StrategyType(str, Enum):
     """Supported strategy families."""
 
