@@ -129,6 +129,26 @@ def test_detect_bullish_and_bearish_fvg() -> None:
     assert bearish_result.direction == "SELL"
 
 
+def test_fvg_fill_ratio_uses_only_closed_candles_after_gap() -> None:
+    detector = FVGDetector()
+    candles = _base_candles(4)
+    candles.loc[:, ["open", "high", "low", "close"]] = [
+        [99.0, 100.0, 98.0, 99.5],
+        [99.5, 101.2, 99.2, 100.5],
+        [102.5, 104.0, 102.0, 103.5],
+        [103.0, 103.2, 101.0, 101.5],
+    ]
+
+    result = detector.analyze(candles)
+
+    assert result.fvg_detected is True
+    assert result.direction == "BUY"
+    assert result.nearest_fvg is not None
+    assert result.nearest_fvg["low"] == 100.0
+    assert result.nearest_fvg["high"] == 102.0
+    assert result.fvg_fill_ratio == pytest.approx(0.5)
+
+
 def test_detect_basic_order_block() -> None:
     detector = OrderBlockDetector()
     candles = _base_candles(5)
@@ -145,6 +165,59 @@ def test_detect_basic_order_block() -> None:
     assert result.nearest_order_block is not None
     assert result.nearest_order_block["direction"] == "BUY"
     assert result.distance_to_nearest_ob >= 0.0
+
+
+def test_detect_bearish_order_block() -> None:
+    detector = OrderBlockDetector()
+    candles = _base_candles(5)
+    candles.loc[:, ["open", "high", "low", "close"]] = [
+        [100.0, 101.0, 99.0, 100.2],
+        [100.2, 101.0, 99.4, 99.8],
+        [99.8, 103.0, 99.0, 102.5],   # last bullish candle
+        [102.5, 102.7, 96.0, 97.0],   # impulse down
+        [97.0, 98.4, 96.2, 97.6],
+    ]
+
+    result = detector.analyze(candles)
+
+    assert result.nearest_order_block is not None
+    assert result.nearest_order_block["direction"] == "SELL"
+    assert any(block["direction"] == "SELL" for block in result.bearish_blocks)
+
+
+def test_ict_detectors_handle_little_data_without_crashing() -> None:
+    candles = _base_candles(2)
+
+    ob_result = OrderBlockDetector().analyze(candles)
+    fvg_result = FVGDetector().analyze(candles)
+
+    assert ob_result.nearest_order_block is None
+    assert ob_result.distance_to_nearest_ob == 1.0
+    assert fvg_result.fvg_detected is False
+    assert fvg_result.nearest_fvg is None
+
+
+def test_order_block_and_fvg_detectors_are_strictly_causal() -> None:
+    candles = _base_candles(8)
+    candles.loc[:, ["open", "high", "low", "close"]] = [
+        [99.0, 100.0, 98.0, 99.5],
+        [99.5, 101.2, 99.2, 100.5],
+        [102.5, 104.0, 102.0, 103.5],
+        [103.0, 103.2, 101.0, 101.5],
+        [101.5, 102.0, 100.8, 101.0],
+        [101.0, 120.0, 100.5, 119.0],
+        [119.0, 121.0, 92.0, 94.0],
+        [94.0, 95.0, 91.0, 92.5],
+    ]
+    check_index = 3
+
+    ob_from_full = OrderBlockDetector().analyze_at(candles, check_index)
+    ob_from_truncated = OrderBlockDetector().analyze(candles.iloc[: check_index + 1])
+    fvg_from_full = FVGDetector().analyze_at(candles, check_index)
+    fvg_from_truncated = FVGDetector().analyze(candles.iloc[: check_index + 1])
+
+    assert ob_from_full.to_dict() == ob_from_truncated.to_dict()
+    assert fvg_from_full.to_dict() == fvg_from_truncated.to_dict()
 
 
 def test_ict_builder_is_strictly_causal() -> None:
