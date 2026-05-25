@@ -27,6 +27,18 @@ class FakeBacktester:
                 mode="normal",
                 trades=[_trade(8.0)],
             ),
+            "fixed": build_report(
+                symbol="BTC/USDT",
+                timeframe="15m",
+                mode="fixed",
+                trades=[_trade(8.0)],
+            ),
+            "dynamic": build_report(
+                symbol="BTC/USDT",
+                timeframe="15m",
+                mode="dynamic",
+                trades=[_trade(7.0)],
+            ),
             "high_slippage": build_report(
                 symbol="BTC/USDT",
                 timeframe="15m",
@@ -38,6 +50,36 @@ class FakeBacktester:
                 timeframe="15m",
                 mode="stress",
                 trades=[_trade(4.0)],
+            ),
+            "high_volatility": build_report(
+                symbol="BTC/USDT",
+                timeframe="15m",
+                mode="high_volatility",
+                trades=[_trade(3.5)],
+            ),
+            "slippage_spike": build_report(
+                symbol="BTC/USDT",
+                timeframe="15m",
+                mode="slippage_spike",
+                trades=[_trade(3.0)],
+            ),
+            "liquidity_dry_up": build_report(
+                symbol="BTC/USDT",
+                timeframe="15m",
+                mode="liquidity_dry_up",
+                trades=[_trade(2.5)],
+            ),
+            "spread_widening": build_report(
+                symbol="BTC/USDT",
+                timeframe="15m",
+                mode="spread_widening",
+                trades=[_trade(2.0)],
+            ),
+            "combined_stress": build_report(
+                symbol="BTC/USDT",
+                timeframe="15m",
+                mode="combined_stress",
+                trades=[_trade(1.0)],
             ),
         }
 
@@ -54,10 +96,20 @@ def test_stress_tester_builds_ordered_scenario_report() -> None:
     assert [item.scenario for item in report.scenarios] == [
         "zero_slippage_baseline",
         "normal",
+        "fixed",
+        "dynamic",
         "high_slippage",
         "stress",
+        "high_volatility",
+        "slippage_spike",
+        "liquidity_dry_up",
+        "spread_widening",
+        "combined_stress",
     ]
-    assert report.scenarios[-1].net_profit <= report.scenarios[0].net_profit
+    baseline_net_profit = report.scenarios[0].net_profit
+    assert all(item.net_profit <= baseline_net_profit for item in report.scenarios[1:])
+    assert report.scenarios[-1].degradation_pct == 90.0
+    assert report.to_dict()["scenarios"][-1]["degradation_pct"] == 90.0
 
 
 def test_stress_tester_writes_json_csv_html() -> None:

@@ -9,6 +9,21 @@ from config.settings import BacktestSettings, ExecutionCostSettings
 from signals.models import SignalType
 
 
+STANDARD_COST_SCENARIO_ORDER = [
+    "zero_slippage_baseline",
+    "normal",
+    "fixed",
+    "dynamic",
+    "high_slippage",
+    "stress",
+    "high_volatility",
+    "slippage_spike",
+    "liquidity_dry_up",
+    "spread_widening",
+    "combined_stress",
+]
+
+
 class ExecutionCostModel(Protocol):
     """Interface for trade fill and fee calculations."""
 
@@ -235,6 +250,68 @@ class StressDynamicCostModel(DynamicCostModel):
         return min(stressed, self._settings.max_slippage_rate)
 
 
+class HighVolatilityCostModel(DynamicCostModel):
+    """Stress scenario that prices fills as if volatility has already expanded."""
+
+    name = "high_volatility"
+
+    def _slippage_rate(self, row: Mapping[str, object]) -> float:
+        stressed_row = dict(row)
+        if str(stressed_row.get("volatility_level", "NORMAL")).upper() != "EXTREME":
+            stressed_row["volatility_level"] = "HIGH"
+        baseline = super()._slippage_rate(stressed_row)
+        stressed = baseline * max(1.0, self._settings.stress_multiplier / 2.0)
+        return min(stressed, self._settings.max_slippage_rate)
+
+
+class SlippageSpikeCostModel(HighSlippageCostModel):
+    """Stress scenario for abrupt execution slippage spikes."""
+
+    name = "slippage_spike"
+
+    def _slippage_rate(self, row: Mapping[str, object]) -> float:
+        baseline = super()._slippage_rate(row)
+        stressed = baseline * max(1.0, self._settings.stress_multiplier)
+        return min(stressed, self._settings.max_slippage_rate)
+
+
+class LiquidityDryUpCostModel(DynamicCostModel):
+    """Stress scenario that simulates a causal drop in available liquidity."""
+
+    name = "liquidity_dry_up"
+
+    def _slippage_rate(self, row: Mapping[str, object]) -> float:
+        stressed_row = dict(row)
+        current_ratio = max(0.0, _float(stressed_row.get("volume_ratio"), 1.0))
+        dry_volume_ratio = self._settings.low_volume_threshold * 0.5
+        stressed_row["volume_ratio"] = min(current_ratio, dry_volume_ratio)
+        baseline = super()._slippage_rate(stressed_row)
+        stressed = baseline * max(1.0, self._settings.low_volume_multiplier)
+        return min(stressed, self._settings.max_slippage_rate)
+
+
+class SpreadWideningCostModel(StressCostModel):
+    """Stress scenario that widens observed or estimated bid/ask spreads."""
+
+    name = "spread_widening"
+
+
+class CombinedStressCostModel(StressDynamicCostModel):
+    """Combined stress scenario for volatility expansion and liquidity dry-up."""
+
+    name = "combined_stress"
+
+    def _slippage_rate(self, row: Mapping[str, object]) -> float:
+        stressed_row = dict(row)
+        stressed_row["volatility_level"] = "EXTREME"
+        current_ratio = max(0.0, _float(stressed_row.get("volume_ratio"), 1.0))
+        stressed_row["volume_ratio"] = min(
+            current_ratio,
+            self._settings.low_volume_threshold * 0.35,
+        )
+        return super()._slippage_rate(stressed_row)
+
+
 def create_execution_cost_model(
     settings: BacktestSettings,
     model_name: str | None = None,
@@ -262,6 +339,16 @@ def create_execution_cost_model(
         return StressDynamicCostModel(cost_settings)
     if cost_settings.model == "stress_spread":
         return StressCostModel(cost_settings)
+    if cost_settings.model == "high_volatility":
+        return HighVolatilityCostModel(cost_settings)
+    if cost_settings.model == "slippage_spike":
+        return SlippageSpikeCostModel(cost_settings)
+    if cost_settings.model == "liquidity_dry_up":
+        return LiquidityDryUpCostModel(cost_settings)
+    if cost_settings.model == "spread_widening":
+        return SpreadWideningCostModel(cost_settings)
+    if cost_settings.model == "combined_stress":
+        return CombinedStressCostModel(cost_settings)
     raise ValueError(f"Unsupported execution cost model: {cost_settings.model}.")
 
 
@@ -276,11 +363,22 @@ def scenario_cost_models(settings: BacktestSettings) -> dict[str, ExecutionCostM
             replace(base, model="zero_slippage_baseline")
         ),
         "normal": DynamicCostModel(replace(base, model="dynamic")),
-        "high_slippage": HighSlippageCostModel(
-            replace(base, model="high_slippage")
+        "fixed": FixedCostModel(replace(base, model="fixed")),
+        "dynamic": DynamicCostModel(replace(base, model="dynamic")),
+        "high_slippage": HighSlippageCostModel(replace(base, model="high_slippage")),
+        "stress": StressDynamicCostModel(replace(base, model="stress")),
+        "high_volatility": HighVolatilityCostModel(
+            replace(base, model="high_volatility")
         ),
-        "stress": StressDynamicCostModel(
-            replace(base, model="stress")
+        "slippage_spike": SlippageSpikeCostModel(replace(base, model="slippage_spike")),
+        "liquidity_dry_up": LiquidityDryUpCostModel(
+            replace(base, model="liquidity_dry_up")
+        ),
+        "spread_widening": SpreadWideningCostModel(
+            replace(base, model="spread_widening")
+        ),
+        "combined_stress": CombinedStressCostModel(
+            replace(base, model="combined_stress")
         ),
     }
 

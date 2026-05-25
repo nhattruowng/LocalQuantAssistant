@@ -5,11 +5,17 @@ from __future__ import annotations
 import pytest
 
 from backtest.execution_cost import (
+    CombinedStressCostModel,
     DynamicCostModel,
     FixedCostModel,
     HighSlippageCostModel,
+    HighVolatilityCostModel,
+    LiquidityDryUpCostModel,
+    SlippageSpikeCostModel,
+    SpreadWideningCostModel,
     StressDynamicCostModel,
     ZeroSlippageBaselineCostModel,
+    create_execution_cost_model,
     scenario_cost_models,
 )
 from config.settings import ExecutionCostSettings
@@ -115,9 +121,37 @@ def test_standard_cost_scenarios_are_available(settings):
     assert list(scenarios) == [
         "zero_slippage_baseline",
         "normal",
+        "fixed",
+        "dynamic",
         "high_slippage",
         "stress",
+        "high_volatility",
+        "slippage_spike",
+        "liquidity_dry_up",
+        "spread_widening",
+        "combined_stress",
     ]
+
+
+def test_create_execution_cost_model_supports_requested_modes(settings):
+    expected_types = {
+        "zero_slippage_baseline": ZeroSlippageBaselineCostModel,
+        "fixed": FixedCostModel,
+        "dynamic": DynamicCostModel,
+        "high_slippage": HighSlippageCostModel,
+        "stress": StressDynamicCostModel,
+        "high_volatility": HighVolatilityCostModel,
+        "slippage_spike": SlippageSpikeCostModel,
+        "liquidity_dry_up": LiquidityDryUpCostModel,
+        "spread_widening": SpreadWideningCostModel,
+        "combined_stress": CombinedStressCostModel,
+    }
+
+    for mode, expected_type in expected_types.items():
+        assert isinstance(
+            create_execution_cost_model(settings.backtest, model_name=mode),
+            expected_type,
+        )
 
 
 def test_stress_scenario_net_profit_not_above_baseline() -> None:
@@ -142,6 +176,31 @@ def test_stress_scenario_net_profit_not_above_baseline() -> None:
         entry=entry,
         exit_price=exit_price,
         position_size=position_size,
+        row=row,
+    )
+
+    assert stress_pnl <= baseline_pnl
+
+
+def test_combined_stress_is_not_better_than_baseline() -> None:
+    baseline = ZeroSlippageBaselineCostModel(_settings())
+    stress = CombinedStressCostModel(_settings(stress_multiplier=3.0))
+    row = {"atr_percent": 0.03, "volume_ratio": 1.2, "volatility_level": "NORMAL"}
+
+    baseline_pnl = _trade_net_pnl(
+        baseline,
+        signal=SignalType.BUY,
+        entry=100.0,
+        exit_price=110.0,
+        position_size=1.0,
+        row=row,
+    )
+    stress_pnl = _trade_net_pnl(
+        stress,
+        signal=SignalType.BUY,
+        entry=100.0,
+        exit_price=110.0,
+        position_size=1.0,
         row=row,
     )
 

@@ -724,6 +724,12 @@ def _validate_settings(settings: Settings) -> None:
         "volatility_adjusted",
         "spread_aware",
         "stress",
+        "stress_spread",
+        "high_volatility",
+        "slippage_spike",
+        "liquidity_dry_up",
+        "spread_widening",
+        "combined_stress",
     }:
         raise ValueError("Backtest execution cost model is not supported.")
     if (
