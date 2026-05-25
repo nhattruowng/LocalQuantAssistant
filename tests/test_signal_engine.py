@@ -712,6 +712,10 @@ def test_reasoning_brain_enabled_adds_reasoning_payload(settings: Settings):
     assert setup.explanation_v2 is not None
     assert setup.explanation_v2["strategy"]["setup_type"] is not None
     assert setup.explanation_v2["strategy"]["confluence_score"] is not None
+    assert "evidence_for" in setup.explanation_v2["strategy"]
+    assert "evidence_against" in setup.explanation_v2["strategy"]
+    assert setup.explanation_v2["strategy"]["evidence_for"]
+    assert setup.reasoning_decision["decision_trace"]["final_signal"] in {"BUY", "SELL", "WAIT"}
 
 
 def _base_features() -> dict[str, float]:

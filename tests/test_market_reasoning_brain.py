@@ -122,6 +122,42 @@ def test_medium_score_allows_reduced_size() -> None:
     assert decision.position_size_multiplier > 0.0
 
 
+def test_low_score_returns_wait_low_confidence() -> None:
+    brain = MarketReasoningBrain(
+        ReasoningBrainSettings(
+            enabled=True,
+            min_confluence_score=0.95,
+            medium_score_threshold=0.90,
+            strong_conflict_threshold=0.30,
+            allow_reduced_size_for_medium_score=True,
+            max_conflict_penalty=0.30,
+        )
+    )
+    decision = brain.decide(
+        _context(
+            regime="UPTREND",
+            primary_signal=SignalType.BUY,
+            probabilities={"BUY": 0.35, "SELL": 0.20, "WAIT": 0.45},
+            diagnostics={
+                "strategy_opinions": [
+                    {
+                        "strategy_type": "TREND_FOLLOWING",
+                        "suggested_signal": "BUY",
+                        "score": 0.40,
+                        "confidence": 0.45,
+                    },
+                ],
+                "multi_timeframe": {"conflict": False, "confidence_multiplier": 0.55},
+            },
+            risk_reward=1.6,
+        )
+    )
+
+    assert decision.final_signal is SignalType.WAIT
+    assert decision.wait_reason == WaitReason.WAIT_LOW_CONFIDENCE.value
+    assert decision.decision_trace["wait_reason"] == WaitReason.WAIT_LOW_CONFIDENCE.value
+
+
 def test_risk_guard_fail_forces_wait_risk_block() -> None:
     brain = MarketReasoningBrain(ReasoningBrainSettings(enabled=True))
     decision = brain.decide(

@@ -150,11 +150,7 @@ class MarketReasoningBrain:
             size_multiplier = 0.5
             threshold = self._settings.medium_score_threshold
         else:
-            wait_reason = (
-                WaitReason.WAIT_LOW_CONFIDENCE.value
-                if final_score >= self._settings.medium_score_threshold * 0.8
-                else WaitReason.WAIT_NO_CLEAR_SETUP.value
-            )
+            wait_reason = WaitReason.WAIT_LOW_CONFIDENCE.value
 
         setup_type = self._setup_classifier.classify(evidence, conflict, final_score)
         confidence = _clip((final_score + context.probability(signal if signal is not SignalType.WAIT else SignalType.WAIT)) / 2.0)
