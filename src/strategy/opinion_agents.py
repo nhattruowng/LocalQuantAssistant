@@ -13,6 +13,7 @@ from signals.models import (
     StrategyOpinion,
     StrategyType,
 )
+from strategy.opinion import build_strategy_opinion, opinion_to_dict, wait_opinion
 
 
 class StrategyOpinionAgent:
@@ -35,17 +36,12 @@ class StrategyOpinionAgent:
         failed: list[str] | None = None,
     ) -> StrategyOpinion:
         """Return a WAIT opinion."""
-        return StrategyOpinion(
+        return wait_opinion(
             strategy_type=self.strategy_type,
-            suggested_signal=SignalType.WAIT,
-            score=round(_clip(score), 4),
-            confidence=round(_clip(score), 4),
-            setup_grade=_grade(score),
             reasons=reasons,
             warnings=warnings or [],
-            passed_conditions=[],
             failed_conditions=failed or reasons,
-            suggested_size_multiplier=_size_multiplier(score, warnings or []),
+            score=score,
         )
 
 
@@ -103,11 +99,11 @@ class TrendFollowingOpinionAgent(StrategyOpinionAgent):
                 warnings=warnings,
                 failed=failed,
             )
-        return StrategyOpinion(
+        return build_strategy_opinion(
             strategy_type=self.strategy_type,
             suggested_signal=signal,
-            score=round(score, 4),
-            confidence=round(_clip(probability * 0.7 + score * 0.3), 4),
+            score=score,
+            confidence=_clip(probability * 0.7 + score * 0.3),
             setup_grade=_grade(score),
             reasons=[
                 f"Trend-following opinion favors {signal.value}.",
@@ -191,11 +187,11 @@ class BreakoutOpinionAgent(StrategyOpinionAgent):
                 warnings=warnings,
                 failed=failed,
             )
-        return StrategyOpinion(
+        return build_strategy_opinion(
             strategy_type=self.strategy_type,
             suggested_signal=signal,
-            score=round(score, 4),
-            confidence=round(_clip(probability * 0.65 + score * 0.35), 4),
+            score=score,
+            confidence=_clip(probability * 0.65 + score * 0.35),
             setup_grade=_grade(score),
             reasons=[
                 f"Breakout opinion favors {signal.value}.",
@@ -260,11 +256,11 @@ class MeanReversionOpinionAgent(StrategyOpinionAgent):
                 warnings=warnings,
                 failed=failed,
             )
-        return StrategyOpinion(
+        return build_strategy_opinion(
             strategy_type=self.strategy_type,
             suggested_signal=signal,
-            score=round(score, 4),
-            confidence=round(_clip(probability * 0.65 + score * 0.35), 4),
+            score=score,
+            confidence=_clip(probability * 0.65 + score * 0.35),
             setup_grade=_grade(score),
             reasons=[
                 f"Mean-reversion opinion favors {signal.value}.",
@@ -275,22 +271,6 @@ class MeanReversionOpinionAgent(StrategyOpinionAgent):
             failed_conditions=failed,
             suggested_size_multiplier=_size_multiplier(score, warnings),
         )
-
-
-def opinion_to_dict(opinion: StrategyOpinion) -> dict[str, object]:
-    """Serialize an opinion for diagnostics and API payloads."""
-    return {
-        "strategy_type": opinion.strategy_type.value,
-        "suggested_signal": opinion.suggested_signal.value,
-        "score": opinion.score,
-        "confidence": opinion.confidence,
-        "setup_grade": opinion.setup_grade.value,
-        "reasons": opinion.reasons,
-        "warnings": opinion.warnings,
-        "passed_conditions": opinion.passed_conditions,
-        "failed_conditions": opinion.failed_conditions,
-        "suggested_size_multiplier": opinion.suggested_size_multiplier,
-    }
 
 
 def _strategy_score(

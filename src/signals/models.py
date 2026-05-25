@@ -12,6 +12,7 @@ from domain.trading_types import SignalDirection
 from regime.market_regime import MarketRegime
 
 if TYPE_CHECKING:
+    from reasoning.evidence import Evidence
     from strategy.memory import MemoryAdjustment
 
 
@@ -173,6 +174,7 @@ class StrategyOpinion:
     score: float
     confidence: float
     setup_grade: SetupGrade
+    evidence: list[Evidence] = field(default_factory=list)
     reasons: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     passed_conditions: list[str] = field(default_factory=list)

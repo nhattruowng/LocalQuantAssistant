@@ -13,6 +13,7 @@ from signals.models import (
     StrategyType,
 )
 from signals.wait_reason import WaitReason
+from strategy.opinion import opinion_to_dict as strategy_opinion_to_dict
 from strategy.memory import MemoryAdjustment, StrategyPerformanceMemory
 
 
@@ -320,18 +321,7 @@ def _opinion_to_dict(opinion: StrategyOpinion | None) -> dict[str, object] | Non
     """Serialize one strategy opinion."""
     if opinion is None:
         return None
-    return {
-        "strategy_type": opinion.strategy_type.value,
-        "suggested_signal": opinion.suggested_signal.value,
-        "score": opinion.score,
-        "confidence": opinion.confidence,
-        "setup_grade": opinion.setup_grade.value,
-        "reasons": opinion.reasons,
-        "warnings": opinion.warnings,
-        "passed_conditions": opinion.passed_conditions,
-        "failed_conditions": opinion.failed_conditions,
-        "suggested_size_multiplier": opinion.suggested_size_multiplier,
-    }
+    return strategy_opinion_to_dict(opinion)
 
 
 def _setup_quality(

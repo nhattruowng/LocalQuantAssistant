@@ -7,8 +7,9 @@ from datetime import UTC, datetime
 
 from config.settings import Settings
 from regime.market_regime import MarketRegime
-from signals.models import SignalContext, SignalType, StrategyType
+from signals.models import SignalContext, SignalType, StrategyOpinion, StrategyType
 from signals.signal_engine import SignalEngine
+from strategy.opinion import opinion_to_dict
 from strategy.opinion_agents import (
     BreakoutOpinionAgent,
     MeanReversionOpinionAgent,
@@ -33,6 +34,8 @@ def test_near_valid_trend_setup_has_valid_score(settings: Settings):
     )
 
     assert opinion.suggested_signal is SignalType.BUY
+    assert isinstance(opinion, StrategyOpinion)
+    assert opinion.evidence
     assert 0.0 <= opinion.score <= 1.0
     assert opinion.score > 0.5
 
@@ -76,6 +79,81 @@ def test_weak_strategy_returns_wait(settings: Settings):
 
     assert opinion.suggested_signal is SignalType.WAIT
     assert opinion.setup_grade.value == "D"
+    assert opinion.evidence
+    assert any(item.evidence_type.value == "WARNING" for item in opinion.evidence)
+
+
+def test_all_strategy_agents_return_standard_opinion_payload(settings: Settings):
+    opinions = [
+        TrendFollowingOpinionAgent(settings.signal).evaluate(
+            _context(
+                market_regime=MarketRegime.UPTREND,
+                features={
+                    **_base_features(),
+                    "close": 103.0,
+                    "ema_20": 100.0,
+                    "ema_50": 96.0,
+                    "rsi_14": 55.0,
+                    "regime_scores": {"UPTREND": 0.72},
+                },
+                probabilities={"BUY": 0.68, "SELL": 0.12, "WAIT": 0.20},
+            )
+        ),
+        BreakoutOpinionAgent(settings.signal).evaluate(
+            _context(
+                market_regime=MarketRegime.BREAKOUT_UP,
+                features={
+                    **_base_features(),
+                    "close": 130.0,
+                    "rolling_high_20": 120.0,
+                    "volume_ratio": 1.6,
+                    "regime_scores": {"BREAKOUT_UP": 0.76},
+                },
+                probabilities={"BUY": 0.72, "SELL": 0.10, "WAIT": 0.18},
+            )
+        ),
+        MeanReversionOpinionAgent(settings.signal).evaluate(
+            _context(
+                market_regime=MarketRegime.SIDEWAY,
+                features={
+                    **_base_features(),
+                    "close": 119.5,
+                    "rolling_high_20": 120.0,
+                    "rolling_low_20": 80.0,
+                    "rsi_14": 68.0,
+                    "regime_scores": {"SIDEWAY": 0.70},
+                },
+                probabilities={"BUY": 0.15, "SELL": 0.66, "WAIT": 0.19},
+            )
+        ),
+    ]
+
+    required_keys = {
+        "strategy_type",
+        "suggested_signal",
+        "score",
+        "confidence",
+        "setup_grade",
+        "evidence",
+        "reasons",
+        "warnings",
+        "suggested_size_multiplier",
+    }
+    for opinion in opinions:
+        payload = opinion_to_dict(opinion)
+        assert isinstance(opinion, StrategyOpinion)
+        assert required_keys.issubset(payload)
+        assert opinion.strategy_type in {
+            StrategyType.TREND_FOLLOWING,
+            StrategyType.BREAKOUT_CONFIRMATION,
+            StrategyType.MEAN_REVERSION,
+        }
+        assert opinion.suggested_signal in {SignalType.BUY, SignalType.SELL, SignalType.WAIT}
+        assert 0.0 <= opinion.score <= 1.0
+        assert 0.0 <= opinion.confidence <= 1.0
+        assert 0.0 <= opinion.suggested_size_multiplier <= 1.0
+        assert isinstance(payload["evidence"], list)
+        assert opinion.evidence
 
 
 def test_mean_reversion_warns_when_breakout_danger(settings: Settings):
