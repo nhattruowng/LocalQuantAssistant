@@ -225,6 +225,15 @@ def apply_component_config(settings: Settings, components: dict[str, bool]) -> S
     safety = settings.safety_filters
     signal = settings.signal
     feature_toggles = settings.feature_toggles
+    memory_override = components.get("memory")
+    memory_enabled = (
+        adaptive.memory_block_after_consecutive_losses
+        if memory_override is None
+        else bool(memory_override)
+    )
+    safety_override = components.get("safety_filter")
+    safety_enabled = bool(safety_override) if safety_override is not None else None
+    model_override = components.get("model_probability")
     return replace(
         settings,
         feature_toggles=replace(
@@ -235,32 +244,38 @@ def apply_component_config(settings: Settings, components: dict[str, bool]) -> S
         adaptive_strategy=replace(
             adaptive,
             enabled=bool(components.get("adaptive_threshold", adaptive.enabled)),
-            memory_block_after_consecutive_losses=bool(
-                components.get("memory", adaptive.memory_block_after_consecutive_losses)
-            ),
+            memory_block_after_consecutive_losses=memory_enabled,
             memory_max_score_penalty=(
                 adaptive.memory_max_score_penalty
-                if components.get("memory", True)
+                if memory_override is None or memory_enabled
                 else 0.0
             ),
             memory_max_size_penalty=(
                 adaptive.memory_max_size_penalty
-                if components.get("memory", True)
+                if memory_override is None or memory_enabled
                 else 0.0
             ),
         ),
         safety_filters=replace(
             safety,
-            mean_reversion_danger_enabled=bool(components.get("safety_filter", True)),
-            breakout_fakeout_defense_enabled=bool(components.get("safety_filter", True)),
-            extreme_volatility_block=bool(components.get("safety_filter", True)),
-            higher_timeframe_conflict_block=bool(components.get("safety_filter", True)),
+            mean_reversion_danger_enabled=(
+                safety.mean_reversion_danger_enabled if safety_enabled is None else safety_enabled
+            ),
+            breakout_fakeout_defense_enabled=(
+                safety.breakout_fakeout_defense_enabled if safety_enabled is None else safety_enabled
+            ),
+            extreme_volatility_block=(
+                safety.extreme_volatility_block if safety_enabled is None else safety_enabled
+            ),
+            higher_timeframe_conflict_block=(
+                safety.higher_timeframe_conflict_block if safety_enabled is None else safety_enabled
+            ),
         ),
         signal=replace(
             signal,
             model_score_weight=(
                 signal.model_score_weight
-                if components.get("model_probability", True)
+                if model_override is None or bool(model_override)
                 else 0.0
             ),
             multi_timeframe=replace(
@@ -287,4 +302,3 @@ def _summary_dict(report: BacktestReport) -> dict[str, Any]:
         "expectancy": report.expectancy,
         "max_drawdown": report.max_drawdown,
     }
-
