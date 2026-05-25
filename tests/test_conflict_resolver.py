@@ -75,6 +75,64 @@ def test_model_vs_price_action_conflict_has_moderate_penalty() -> None:
     assert any(ConflictType.MODEL_VS_PRICE_ACTION.value in reason for reason in result.conflict_reasons)
 
 
+def test_regime_vs_structure_conflict_reduces_size() -> None:
+    resolver = ConflictResolver()
+    result = resolver.evaluate(
+        [
+            _evidence("Regime uptrend", "regime_alignment", EvidenceDirection.BUY, 0.9, 0.9),
+            _evidence("Lower highs", "market_structure", EvidenceDirection.SELL, 0.45, 0.8),
+        ]
+    )
+
+    assert result.conflict_level is ConflictLevel.MEDIUM
+    assert result.recommended_action is ConflictAction.REDUCE_SIZE
+    assert any(ConflictType.REGIME_VS_STRUCTURE.value in reason for reason in result.conflict_reasons)
+
+
+def test_ict_vs_weak_volume_conflict_reduces_size() -> None:
+    resolver = ConflictResolver()
+    result = resolver.evaluate(
+        [
+            _evidence("Liquidity sweep reversal", "ict_confluence", EvidenceDirection.BUY, 0.8, 0.8),
+            _evidence(
+                "Weak volume",
+                "volume_confirmation",
+                EvidenceDirection.NEUTRAL,
+                0.7,
+                0.8,
+                evidence_type=EvidenceType.WARNING,
+                reason="Volume confirmation is weak after ICT sweep.",
+            ),
+        ]
+    )
+
+    assert result.conflict_level is ConflictLevel.MEDIUM
+    assert result.recommended_action is ConflictAction.REDUCE_SIZE
+    assert any(ConflictType.ICT_VS_VOLUME.value in reason for reason in result.conflict_reasons)
+
+
+def test_model_buy_with_weak_price_action_has_moderate_penalty() -> None:
+    resolver = ConflictResolver()
+    result = resolver.evaluate(
+        [
+            _evidence("Model buy", "model_probability", EvidenceDirection.BUY, 0.85, 0.9),
+            _evidence(
+                "Weak candle body",
+                "price_action",
+                EvidenceDirection.NEUTRAL,
+                0.75,
+                0.8,
+                evidence_type=EvidenceType.WARNING,
+                reason="Price action body is weak for BUY continuation.",
+            ),
+        ]
+    )
+
+    assert result.conflict_level is ConflictLevel.MEDIUM
+    assert result.recommended_action is ConflictAction.REDUCE_SIZE
+    assert any(ConflictType.MODEL_VS_PRICE_ACTION.value in reason for reason in result.conflict_reasons)
+
+
 def test_no_conflict_recommends_continue() -> None:
     resolver = ConflictResolver()
     result = resolver.evaluate(
@@ -122,6 +180,7 @@ def _evidence(
     score: float,
     confidence: float,
     reason: str | None = None,
+    evidence_type: EvidenceType = EvidenceType.SUPPORT,
 ) -> Evidence:
     return Evidence(
         name=name,
@@ -130,7 +189,7 @@ def _evidence(
         score=score,
         confidence=confidence,
         weight=1.0,
-        evidence_type=EvidenceType.SUPPORT,
+        evidence_type=evidence_type,
         reason=reason or name,
         impact_on_score=0.0,
         is_critical=False,

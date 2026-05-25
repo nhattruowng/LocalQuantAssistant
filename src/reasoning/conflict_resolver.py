@@ -117,7 +117,62 @@ class ConflictResolver:
                 max_level = _max_level(max_level, ConflictLevel.MEDIUM)
                 max_action = _max_action(max_action, ConflictAction.REDUCE_SIZE)
 
-        # 3) Breakout with strong rejection wick => fakeout risk.
+        # 3) Regime and market structure pointing in opposite directions.
+        regime_direction, regime_strength = self._dominant_source_direction(
+            evidence,
+            source_tokens=("regime",),
+        )
+        structure_direction, structure_strength = self._dominant_source_direction(
+            evidence,
+            source_tokens=("structure",),
+        )
+        if (
+            regime_direction is not None
+            and structure_direction is not None
+            and structure_direction is _opposite_direction(regime_direction)
+        ):
+            severity = _clip(min(regime_strength, structure_strength))
+            penalty += 0.10 + 0.18 * severity
+            reasons.append(
+                f"{ConflictType.REGIME_VS_STRUCTURE.value}: "
+                f"regime={regime_direction.value}:{regime_strength:.3f}, "
+                f"structure={structure_direction.value}:{structure_strength:.3f}"
+            )
+            if severity >= 0.75:
+                max_level = _max_level(max_level, ConflictLevel.HIGH)
+                max_action = _max_action(max_action, ConflictAction.WAIT)
+            else:
+                max_level = _max_level(max_level, ConflictLevel.MEDIUM)
+                max_action = _max_action(max_action, ConflictAction.REDUCE_SIZE)
+
+        # 4) ICT setup without volume support is more likely to fake out.
+        ict_direction, ict_strength = self._dominant_source_direction(
+            evidence,
+            source_tokens=("ict",),
+        )
+        if ict_direction is not None and ict_strength > 0.0:
+            volume_opposed = self._source_direction_strength(
+                evidence,
+                source_tokens=("volume",),
+                direction=_opposite_direction(ict_direction),
+            )
+            volume_weak = self._source_warning_or_against_strength(
+                evidence,
+                source_tokens=("volume",),
+                protected_direction=ict_direction,
+            )
+            ict_volume_severity = _clip(volume_opposed + volume_weak)
+            if ict_volume_severity > 0.0:
+                penalty += 0.08 + 0.12 * ict_volume_severity
+                reasons.append(
+                    f"{ConflictType.ICT_VS_VOLUME.value}: "
+                    f"ict={ict_direction.value}:{ict_strength:.3f}, "
+                    f"volume_conflict={ict_volume_severity:.3f}"
+                )
+                max_level = _max_level(max_level, ConflictLevel.MEDIUM)
+                max_action = _max_action(max_action, ConflictAction.REDUCE_SIZE)
+
+        # 5) Breakout with strong rejection wick => fakeout risk.
         breakout_strength = self._keyword_strength(evidence, ("breakout",))
         rejection_strength = self._keyword_strength(evidence, ("rejection", "wick"))
         fakeout_severity = min(breakout_strength, rejection_strength)
@@ -130,7 +185,7 @@ class ConflictResolver:
             max_level = _max_level(max_level, ConflictLevel.HIGH)
             max_action = ConflictAction.WAIT
 
-        # 4) Model supports a side while PA/ICT disagree.
+        # 6) Model supports a side while PA/ICT disagree or PA is weak.
         model_direction = self._model_direction(evidence) or dominant_direction
         model_strength = self._source_direction_strength(
             evidence,
@@ -156,8 +211,23 @@ class ConflictResolver:
             )
             max_level = _max_level(max_level, ConflictLevel.MEDIUM)
             max_action = _max_action(max_action, ConflictAction.REDUCE_SIZE)
+        else:
+            pa_weak = self._source_warning_or_against_strength(
+                evidence,
+                source_tokens=("price_action",),
+                protected_direction=model_direction,
+            )
+            if model_strength > 0.0 and pa_weak > 0.0 and pa_ict_same < model_strength * 0.70:
+                weakness = _clip(pa_weak)
+                penalty += 0.06 + 0.12 * weakness
+                reasons.append(
+                    f"{ConflictType.MODEL_VS_PRICE_ACTION.value}: "
+                    f"model={model_strength:.3f}, price_action_weakness={weakness:.3f}"
+                )
+                max_level = _max_level(max_level, ConflictLevel.MEDIUM)
+                max_action = _max_action(max_action, ConflictAction.REDUCE_SIZE)
 
-        # 5) Risk guard blocks should always force WAIT.
+        # 7) Risk guard blocks should always force WAIT.
         if self._risk_guard_failed(evidence):
             penalty += 0.50
             reasons.append(
@@ -265,6 +335,39 @@ class ConflictResolver:
                 if item.direction is direction and item.evidence_type is EvidenceType.AGAINST:
                     strength -= _strength(item)
         return max(0.0, strength)
+
+    def _dominant_source_direction(
+        self,
+        evidence: list[Evidence],
+        source_tokens: tuple[str, ...],
+    ) -> tuple[EvidenceDirection | None, float]:
+        buy = self._source_direction_strength(evidence, source_tokens, EvidenceDirection.BUY)
+        sell = self._source_direction_strength(evidence, source_tokens, EvidenceDirection.SELL)
+        if buy == 0.0 and sell == 0.0:
+            return None, 0.0
+        if buy >= sell:
+            return EvidenceDirection.BUY, buy
+        return EvidenceDirection.SELL, sell
+
+    def _source_warning_or_against_strength(
+        self,
+        evidence: list[Evidence],
+        source_tokens: tuple[str, ...],
+        protected_direction: EvidenceDirection,
+    ) -> float:
+        strength = 0.0
+        for item in evidence:
+            source = item.source.lower().replace("-", "_")
+            if not any(token in source for token in source_tokens):
+                continue
+            if item.evidence_type is EvidenceType.WARNING:
+                strength += _strength(item)
+            elif (
+                item.evidence_type is EvidenceType.AGAINST
+                and item.direction in {protected_direction, EvidenceDirection.NEUTRAL}
+            ):
+                strength += _strength(item)
+        return _clip(strength)
 
     def _risk_guard_failed(self, evidence: list[Evidence]) -> bool:
         for item in evidence:
