@@ -97,12 +97,16 @@ class ConfluenceEngine:
         weighted_rows = []
         for item in evidence:
             source_key = _canonical_source(item.source)
-            raw_weight = self._source_weights.get(source_key, max(0.0, float(item.weight)))
+            configured_weight = self._source_weights.get(source_key, 1.0)
+            evidence_weight = _clip(item.weight)
+            effective_weight = max(0.0, float(configured_weight)) * evidence_weight
             weighted_rows.append(
                 {
                     "evidence": item,
                     "source_key": source_key,
-                    "raw_weight": max(0.0, raw_weight),
+                    "configured_weight": max(0.0, float(configured_weight)),
+                    "evidence_weight": evidence_weight,
+                    "raw_weight": effective_weight,
                 }
             )
 
@@ -133,6 +137,9 @@ class ConfluenceEngine:
                     "evidence_type": item.evidence_type.value,
                     "score": _clip(item.score),
                     "confidence": _clip(item.confidence),
+                    "configured_weight": round(row["configured_weight"], 8),
+                    "evidence_weight": round(row["evidence_weight"], 8),
+                    "effective_weight": round(row["raw_weight"], 8),
                     "weight": round(normalized_weight, 8),
                     "impact_on_score": round(signed_impact, 8),
                     "is_critical": item.is_critical,

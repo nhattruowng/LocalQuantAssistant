@@ -43,6 +43,22 @@ def test_mixed_buy_sell_evidence_still_returns_breakdown() -> None:
     assert 0.0 <= result.normalized_score <= 1.0
 
 
+def test_opposing_evidence_reduces_score() -> None:
+    engine = ConfluenceEngine()
+    supportive = engine.evaluate(
+        [_evidence("Structure", "market_structure", EvidenceType.SUPPORT, 0.8, 0.9)]
+    )
+    opposed = engine.evaluate(
+        [
+            _evidence("Structure", "market_structure", EvidenceType.SUPPORT, 0.8, 0.9),
+            _evidence("Model", "model_probability", EvidenceType.AGAINST, 0.8, 0.9),
+        ]
+    )
+
+    assert opposed.normalized_score < supportive.normalized_score
+    assert opposed.score_breakdown[-1]["impact_on_score"] < 0.0
+
+
 def test_empty_evidence_returns_configurable_neutral() -> None:
     default_result = ConfluenceEngine().evaluate([])
     neutral_result = ConfluenceEngine(empty_score=0.5).evaluate([])
@@ -63,6 +79,41 @@ def test_missing_sources_are_weight_normalized() -> None:
 
     assert by_source["regime_alignment"]["weight"] == pytest.approx(0.4)
     assert by_source["market_structure"]["weight"] == pytest.approx(0.6)
+
+
+def test_evidence_weight_participates_in_normalized_weight() -> None:
+    engine = ConfluenceEngine()
+    result = engine.evaluate(
+        [
+            _evidence("Regime", "regime_alignment", EvidenceType.SUPPORT, 0.8, 0.9, weight=0.5),
+            _evidence("Structure", "market_structure", EvidenceType.SUPPORT, 0.8, 0.9, weight=1.0),
+        ]
+    )
+    by_source = {item["source_key"]: item for item in result.score_breakdown}
+
+    assert by_source["regime_alignment"]["effective_weight"] == pytest.approx(0.06)
+    assert by_source["market_structure"]["effective_weight"] == pytest.approx(0.18)
+    assert by_source["regime_alignment"]["weight"] == pytest.approx(0.25)
+    assert by_source["market_structure"]["weight"] == pytest.approx(0.75)
+
+
+def test_custom_source_weights_are_supported() -> None:
+    engine = ConfluenceEngine(
+        source_weights={
+            "regime_alignment": 1.0,
+            "market_structure": 3.0,
+        }
+    )
+    result = engine.evaluate(
+        [
+            _evidence("Regime", "regime_alignment", EvidenceType.SUPPORT, 0.8, 0.9),
+            _evidence("Structure", "market_structure", EvidenceType.SUPPORT, 0.8, 0.9),
+        ]
+    )
+    by_source = {item["source_key"]: item for item in result.score_breakdown}
+
+    assert by_source["regime_alignment"]["weight"] == pytest.approx(0.25)
+    assert by_source["market_structure"]["weight"] == pytest.approx(0.75)
 
 
 def test_impact_on_score_matches_score_confidence_weight() -> None:
@@ -129,6 +180,7 @@ def _evidence(
     score: float,
     confidence: float,
     direction: EvidenceDirection = EvidenceDirection.BUY,
+    weight: float = 1.0,
 ) -> Evidence:
     return Evidence(
         name=name,
@@ -136,7 +188,7 @@ def _evidence(
         direction=direction,
         score=score,
         confidence=confidence,
-        weight=1.0,
+        weight=weight,
         evidence_type=evidence_type,
         reason=f"{name} reason",
         impact_on_score=0.0,
