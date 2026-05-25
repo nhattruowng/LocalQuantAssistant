@@ -29,9 +29,46 @@ def test_detect_liquidity_sweep() -> None:
     result = detector.analyze(candles)
 
     assert result.detected is True
+    assert result.liquidity_sweep_detected is True
     assert result.direction == "SELL"
+    assert result.sweep_direction == "SELL"
+    assert result.swept_level is not None
     assert result.volume_confirmed is True
     assert result.warning is None
+    assert result.fakeout_risk_score < 0.55
+    assert any(item.name == "Liquidity Sweep" for item in result.evidence)
+
+
+def test_detect_sweep_previous_swing_low() -> None:
+    detector = LiquiditySweepDetector()
+    candles = _base_candles(8)
+    candles.loc[:, "high"] = [109.0, 108.0, 106.0, 107.0, 105.5, 107.5, 108.0, 104.2]
+    candles.loc[:, "low"] = [105.0, 103.0, 100.0, 102.0, 101.0, 102.2, 103.0, 99.0]
+    candles.loc[:, "open"] = [108.0, 107.0, 104.0, 101.0, 104.0, 103.0, 104.0, 103.8]
+    candles.loc[:, "close"] = [107.0, 104.0, 101.0, 106.0, 102.0, 107.0, 104.5, 103.6]
+    candles.loc[:, "volume"] = [100.0] * 7 + [180.0]
+
+    result = detector.analyze(candles)
+
+    assert result.detected is True
+    assert result.direction == "BUY"
+    assert result.swept_level is not None
+    assert result.rejection_score >= 0.55
+
+
+def test_sweep_rejection_detected() -> None:
+    detector = LiquiditySweepDetector()
+    candles = _base_candles(8)
+    candles.loc[:, "high"] = [101.0, 102.0, 105.0, 103.0, 105.0, 104.0, 103.5, 106.0]
+    candles.loc[:, "low"] = [99.0, 100.0, 102.0, 101.0, 102.0, 101.0, 100.5, 103.2]
+    candles.loc[:, "open"] = [100.0, 101.0, 103.0, 102.0, 103.0, 102.0, 102.8, 103.8]
+    candles.loc[:, "close"] = [100.5, 101.5, 104.0, 102.3, 103.8, 102.1, 102.0, 103.6]
+    candles.loc[:, "volume"] = [100.0] * 7 + [180.0]
+
+    result = detector.analyze(candles)
+
+    assert result.detected is True
+    assert result.rejection_score >= 0.55
 
 
 def test_sweep_with_weak_volume_creates_warning() -> None:
@@ -48,6 +85,24 @@ def test_sweep_with_weak_volume_creates_warning() -> None:
     assert result.direction == "SELL"
     assert result.volume_confirmed is False
     assert result.warning is not None
+    assert any(item.evidence_type.value == "WARNING" for item in result.evidence)
+    assert result.fakeout_risk_score >= 0.55
+
+
+def test_liquidity_sweep_detector_is_strictly_causal() -> None:
+    detector = LiquiditySweepDetector()
+    candles = _base_candles(10)
+    candles.loc[:, "high"] = [101.0, 102.0, 105.0, 103.0, 105.0, 104.0, 103.5, 106.0, 130.0, 131.0]
+    candles.loc[:, "low"] = [99.0, 100.0, 102.0, 101.0, 102.0, 101.0, 100.5, 103.2, 99.0, 98.0]
+    candles.loc[:, "open"] = [100.0, 101.0, 103.0, 102.0, 103.0, 102.0, 102.8, 103.8, 110.0, 111.0]
+    candles.loc[:, "close"] = [100.5, 101.5, 104.0, 102.3, 103.8, 102.1, 102.0, 103.6, 105.0, 104.0]
+    candles.loc[:, "volume"] = [100.0] * 7 + [180.0, 400.0, 500.0]
+    check_index = 7
+
+    from_full = detector.analyze_at(candles, check_index)
+    from_truncated = detector.analyze(candles.iloc[: check_index + 1])
+
+    assert from_full.to_dict() == from_truncated.to_dict()
 
 
 def test_detect_bullish_and_bearish_fvg() -> None:
