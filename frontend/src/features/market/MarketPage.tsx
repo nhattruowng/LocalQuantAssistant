@@ -1,6 +1,9 @@
 import { MetricCard } from "@/components/cards/MetricCard";
 import { MarketCharts } from "@/components/charts/MarketCharts";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { MarketPresetSelector } from "@/components/market/MarketPresetSelector";
+import { MARKET_UNAVAILABLE_MESSAGE } from "@/constants/marketPresets";
+import { useAppSettings } from "@/hooks/useAppSettings";
 import { useCandlesQuery } from "@/hooks/useApiQueries";
 import { formatNumber } from "@/lib/utils";
 import {
@@ -54,6 +57,7 @@ function buildTransitionMatrix(regimes: string[]) {
 }
 
 export function MarketPage() {
+  const { symbol, timeframe, setSymbol, setTimeframe } = useAppSettings();
   const candles = useCandlesQuery(500);
   const latest = candles.data?.at(-1);
   const timeline = (candles.data ?? []).slice(-160).map((item, index) => {
@@ -72,6 +76,15 @@ export function MarketPage() {
   return (
     <div>
       <PageHeader title="Market" description="OHLCV chart, indicator overlays, volume, RSI, and current regime." />
+      <MarketPresetSelector
+        selectedSymbol={symbol}
+        selectedTimeframe={timeframe}
+        onSelect={(payload) => {
+          setSymbol(payload.symbol);
+          setTimeframe(payload.timeframe);
+        }}
+        className="mb-4"
+      />
       <div className="mb-4 grid gap-4 md:grid-cols-4">
         <MetricCard label="Close" value={formatNumber(latest?.close, 4)} />
         <MetricCard label="High" value={formatNumber(latest?.high, 4)} />
@@ -79,7 +92,7 @@ export function MarketPage() {
         <MetricCard label="Regime" value={latest?.market_regime ?? "-"} />
       </div>
       {candles.isLoading ? <p className="text-muted-foreground">Loading market data...</p> : null}
-      {candles.isError ? <p className="text-red-600">No data found</p> : null}
+      {candles.isError ? <p className="text-red-600">{MARKET_UNAVAILABLE_MESSAGE}</p> : null}
       <MarketCharts candles={candles.data ?? []} />
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
         <section className="rounded-lg border border-border bg-white p-4">

@@ -60,9 +60,10 @@ export interface ReasoningDecision {
 }
 
 export interface MarketPreset {
-  preset_id: string;
-  label: string;
-  symbol?: string;
+  preset_id?: string;
+  label?: string;
+  symbol: string;
+  asset_class: string;
   timeframe?: string;
   market_regime?: string;
   description?: string;
