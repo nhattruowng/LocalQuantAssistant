@@ -6,7 +6,7 @@ import { DashboardPage } from "@/features/dashboard/DashboardPage";
 import { HistoryPage } from "@/features/history/HistoryPage";
 import { MarketPage } from "@/features/market/MarketPage";
 import { SettingsPage } from "@/features/settings/SettingsPage";
-import { SignalPage } from "@/features/signal/SignalPage";
+import { SignalPage } from "@/pages/SignalPage";
 import { BacktestPage } from "@/pages/BacktestPage";
 import { ModelPage } from "@/pages/ModelPage";
 import { RiskPage } from "@/pages/RiskPage";
