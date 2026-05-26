@@ -11,8 +11,12 @@ from ml.calibration.probability_calibrator import (
     ProbabilityCalibrator,
     probability_payload,
 )
+from ml.calibration.calibrator import Calibrator, CalibratorConfig, CalibratorResult
 
 __all__ = [
+    "Calibrator",
+    "CalibratorConfig",
+    "CalibratorResult",
     "CalibratedProbabilityModel",
     "ProbabilityCalibrator",
     "calibration_report",
