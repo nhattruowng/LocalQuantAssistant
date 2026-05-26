@@ -4,7 +4,8 @@ import { Button } from "@/components/forms/Button";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ConflictSummaryCard } from "@/components/reasoning/ConflictSummaryCard";
 import { DecisionTraceViewer } from "@/components/reasoning/DecisionTraceViewer";
-import { EvidenceRail, RiskGuardBanner } from "@/components/reasoning/ReasoningPanels";
+import { EvidencePanel } from "@/components/reasoning/EvidencePanel";
+import { RiskGuardBanner } from "@/components/reasoning/ReasoningPanels";
 import { MarketContextCard } from "@/components/reasoning/MarketContextCard";
 import { ReasoningSummaryCard } from "@/components/reasoning/ReasoningSummaryCard";
 import { SignalSummaryCard } from "@/components/reasoning/SignalSummaryCard";
@@ -32,6 +33,10 @@ export function SignalPage({ latestSignal, onSignalGenerated }: SignalPageProps)
   const opposingEvidence = useMemo(
     () => normalizeEvidence(snapshot.reasoning?.evidence_against),
     [snapshot.reasoning?.evidence_against],
+  );
+  const warningEvidence = useMemo(
+    () => buildWarningEvidence(snapshot.reasoning?.warnings, trace?.warnings),
+    [snapshot.reasoning?.warnings, trace?.warnings],
   );
 
   const generate = async () => {
@@ -97,20 +102,12 @@ export function SignalPage({ latestSignal, onSignalGenerated }: SignalPageProps)
         <ReasoningSummaryCard setup={latestSignal} />
       </div>
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-2">
-        <EvidenceRail
-          title="Evidence For"
-          items={supportingEvidence}
-          tone="for"
-          emptyText="No supporting evidence available."
-        />
-        <EvidenceRail
-          title="Evidence Against"
-          items={opposingEvidence}
-          tone="against"
-          emptyText="No opposing evidence available."
-        />
-      </div>
+      <EvidencePanel
+        evidenceFor={supportingEvidence}
+        evidenceAgainst={opposingEvidence}
+        warnings={warningEvidence}
+        className="mt-4"
+      />
 
       <div className="mt-4">
         <DecisionTraceViewer trace={trace} title="Decision Trace" />
@@ -121,6 +118,24 @@ export function SignalPage({ latestSignal, onSignalGenerated }: SignalPageProps)
 
 function normalizeEvidence(items?: ReasoningEvidencePayload[] | null): ReasoningEvidencePayload[] {
   return Array.isArray(items) ? items : [];
+}
+
+function buildWarningEvidence(
+  reasoningWarnings?: string[] | null,
+  traceWarnings?: string[] | null,
+): ReasoningEvidencePayload[] {
+  return [...(reasoningWarnings ?? []), ...(traceWarnings ?? [])].map((warning, index) => ({
+    name: `Warning ${index + 1}`,
+    source: "reasoning",
+    direction: "NEUTRAL",
+    evidence_type: "WARNING",
+    score: null,
+    confidence: null,
+    weight: null,
+    impact_on_score: null,
+    reason: warning,
+    is_critical: /block|critical|high|riskguard/i.test(warning),
+  }));
 }
 
 function StatePanel({

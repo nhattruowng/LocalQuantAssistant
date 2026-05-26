@@ -2,16 +2,33 @@ import { TriangleAlert } from "lucide-react";
 import { cn, formatNumber } from "@/lib/utils";
 import type { DecisionStepPayload } from "@/types";
 
-export function DecisionStepItem({ step, index }: { step: DecisionStepPayload; index: number }) {
+export type DecisionStepMode = "timeline" | "accordion";
+export type DecisionStepDensity = "compact" | "full";
+
+export function DecisionStepItem({
+  step,
+  index,
+  mode = "timeline",
+  density = "compact",
+}: {
+  step: DecisionStepPayload;
+  index: number;
+  mode?: DecisionStepMode;
+  density?: DecisionStepDensity;
+}) {
   const warnings = Array.isArray(step.warnings) ? step.warnings : [];
   const failed = step.passed === false;
   const warned = warnings.length > 0;
+  const stepName = String(step.step_name ?? "step").trim() || "step";
+  const showMetrics = density === "full" || failed || warned;
+  const showDetails = density === "full" || Boolean(step.details) || warnings.length > 0;
 
   return (
     <details
-      open={failed || warned}
+      open={density === "full" || failed || warned}
       className={cn(
-        "rounded-lg border p-4",
+        "rounded-xl border p-4",
+        mode === "timeline" && "relative",
         failed ? "border-red-200 bg-red-50" : warned ? "border-amber-200 bg-amber-50" : "border-border bg-white",
       )}
     >
@@ -22,7 +39,7 @@ export function DecisionStepItem({ step, index }: { step: DecisionStepPayload; i
               <span className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-white text-xs font-bold">
                 {index + 1}
               </span>
-              <span className="font-semibold text-foreground">{step.step_name}</span>
+              <span className="font-semibold text-foreground">{stepName}</span>
               {failed ? (
                 <span className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-800">
                   <TriangleAlert className="h-3 w-3" />
@@ -43,14 +60,16 @@ export function DecisionStepItem({ step, index }: { step: DecisionStepPayload; i
           {step.timestamp ? <div className="text-xs text-muted-foreground">{step.timestamp}</div> : null}
         </div>
       </summary>
-      <div className="mt-4 grid gap-3 md:grid-cols-2">
-        <Metric label="Input Score" value={formatNumber(step.input_score ?? null, 2)} />
-        <Metric label="Output Score" value={formatNumber(step.output_score ?? null, 2)} />
-        <Metric label="Delta" value={formatNumber(step.delta ?? null, 2)} />
-        <Metric label="Passed" value={step.passed === false ? "No" : step.passed === true ? "Yes" : "-"} />
-        <Metric label="Warnings" value={String(warnings.length)} />
-        <Metric label="Timestamp" value={step.timestamp ?? "-"} />
-      </div>
+      {showMetrics ? (
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <Metric label="Input Score" value={formatNumber(step.input_score ?? null, 2)} />
+          <Metric label="Output Score" value={formatNumber(step.output_score ?? null, 2)} />
+          <Metric label="Delta" value={formatNumber(step.delta ?? null, 2)} />
+          <Metric label="Passed" value={step.passed === false ? "No" : step.passed === true ? "Yes" : "-"} />
+          <Metric label="Warnings" value={String(warnings.length)} />
+          <Metric label="Timestamp" value={step.timestamp ?? "-"} />
+        </div>
+      ) : null}
       {warnings.length ? (
         <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
           <p className="font-medium">Warnings</p>
@@ -61,10 +80,12 @@ export function DecisionStepItem({ step, index }: { step: DecisionStepPayload; i
           </ul>
         </div>
       ) : null}
-      <details className="mt-4 rounded-lg border border-border bg-background/40 p-3">
-        <summary className="cursor-pointer text-sm font-medium">Details JSON</summary>
-        <pre className="mt-2 max-h-72 overflow-auto rounded bg-muted p-3 text-xs">{JSON.stringify(step.details ?? {}, null, 2)}</pre>
-      </details>
+      {showDetails ? (
+        <details className="mt-4 rounded-lg border border-border bg-background/40 p-3">
+          <summary className="cursor-pointer text-sm font-medium">Details JSON</summary>
+          <pre className="mt-2 max-h-72 overflow-auto rounded bg-muted p-3 text-xs">{JSON.stringify(step.details ?? {}, null, 2)}</pre>
+        </details>
+      ) : null}
     </details>
   );
 }
