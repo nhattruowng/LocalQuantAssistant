@@ -142,10 +142,10 @@ export interface TradeSetup {
 }
 
 export interface DecisionStepPayload {
-  step_name: string;
-  input_score?: number;
-  output_score?: number;
-  delta?: number;
+  step_name?: string;
+  input_score?: number | null;
+  output_score?: number | null;
+  delta?: number | null;
   passed?: boolean;
   details?: Record<string, unknown>;
   warnings?: string[];
@@ -159,8 +159,9 @@ export interface DecisionTracePayload {
   model_version?: string | null;
   config_hash?: string | null;
   steps?: DecisionStepPayload[];
-  final_signal?: string;
-  final_confidence?: number;
+  final_signal?: string | null;
+  final_confidence?: number | null;
+  wait_reason?: string | null;
   created_at?: string;
   warnings?: string[];
 }
@@ -169,30 +170,30 @@ export interface ReasoningEvidencePayload {
   name?: string;
   source?: string;
   direction?: string;
-  score?: number;
-  confidence?: number;
-  weight?: number;
+  score?: number | null;
+  confidence?: number | null;
+  weight?: number | null;
   evidence_type?: string;
   reason?: string;
-  impact_on_score?: number;
+  impact_on_score?: number | null;
   is_critical?: boolean;
 }
 
 export interface ReasoningDecisionPayload {
-  final_signal?: string;
-  setup_type?: string;
-  confluence_score?: number;
-  confidence?: number;
-  adaptive_threshold?: number;
-  position_size_multiplier?: number;
-  evidence_for?: ReasoningEvidencePayload[];
-  evidence_against?: ReasoningEvidencePayload[];
+  final_signal?: string | null;
+  setup_type?: string | null;
+  confluence_score?: number | null;
+  confidence?: number | null;
+  adaptive_threshold?: number | null;
+  position_size_multiplier?: number | null;
+  evidence_for?: ReasoningEvidencePayload[] | null;
+  evidence_against?: ReasoningEvidencePayload[] | null;
   warnings?: string[];
   wait_reason?: string | null;
-  conflict_level?: string;
-  conflict_details?: Record<string, unknown>;
+  conflict_level?: string | null;
+  conflict_details?: Record<string, unknown> | null;
   risk_notes?: string[];
-  decision_trace?: DecisionTracePayload | Record<string, unknown>;
+  decision_trace?: DecisionTracePayload | Record<string, unknown> | null;
 }
 
 export interface Trade {
@@ -339,12 +340,18 @@ export interface ModelCalibration {
 
 export interface DriftReportPayload {
   drift_level?: "NONE" | "LOW" | "MEDIUM" | "HIGH" | string;
-  drift_score?: number;
+  drift_score?: number | null;
+  drifted?: boolean;
   drifted_features?: Array<Record<string, unknown>>;
+  feature_metrics?: Array<Record<string, unknown>>;
   prediction_shift?: Record<string, unknown>;
+  prediction_distribution_shift?: Record<string, unknown>;
   calibration_shift?: Record<string, unknown>;
+  calibration_drift?: Record<string, unknown>;
   regime_shift?: Record<string, unknown>;
+  regime_drift?: Record<string, unknown>;
   recommended_action?: "CONTINUE" | "WARN" | "RETRAIN_CANDIDATE" | "DISABLE_MODEL" | string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface ModelDriftResponse {
@@ -398,3 +405,7 @@ export interface ApiError {
     message: string;
   };
 }
+
+export type { BacktestAnalytics } from "./backtest";
+export type { DriftReport } from "./model";
+export type { MarketPreset } from "./reasoning";

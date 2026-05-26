@@ -45,7 +45,7 @@ function normalizeSetupType(value?: string | null) {
 }
 
 function toEvidence(
-  items: ReasoningEvidencePayload[] | undefined,
+  items: ReasoningEvidencePayload[] | null | undefined,
   fallbackSource: (item: ReasoningEvidencePayload) => string,
 ) {
   if (!Array.isArray(items)) return [];

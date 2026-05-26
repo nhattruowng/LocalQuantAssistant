@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { CheckCircle2, Copy, Filter, TriangleAlert } from "lucide-react";
+import { Copy, Filter, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/forms/Button";
 import { Select } from "@/components/forms/Select";
 import { cn, formatNumber } from "@/lib/utils";
@@ -40,7 +40,7 @@ function stepTone(step: DecisionStepPayload) {
   return "border-border bg-white text-foreground";
 }
 
-function scoreLabel(value?: number) {
+function scoreLabel(value?: number | null) {
   if (value === null || value === undefined || Number.isNaN(value)) return "-";
   return formatNumber(value, 2);
 }
@@ -55,7 +55,7 @@ export function DecisionTraceViewer({ trace, title = "Decision Trace", className
   const [filter, setFilter] = useState<DecisionTraceFilter>("all");
   const [copied, setCopied] = useState(false);
 
-  const steps = Array.isArray(trace?.steps) ? trace.steps : [];
+  const steps = useMemo(() => (Array.isArray(trace?.steps) ? trace.steps : []), [trace?.steps]);
 
   const filteredSteps = useMemo(() => {
     return steps.filter((step) => {
