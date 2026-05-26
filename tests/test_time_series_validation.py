@@ -12,7 +12,13 @@ from dataclasses import replace
 
 from config.settings import TrainingValidationSettings
 from ml.model_trainer import ModelTrainer
-from ml.validation.purged_cv import PurgedTimeSeriesSplit, apply_purge_and_embargo
+from ml.validation.purged_cv import (
+    PurgedFold,
+    PurgedTimeSeriesSplit,
+    apply_purge_and_embargo,
+    build_validation_metadata,
+    validate_chronological_folds,
+)
 from ml.validation.walk_forward import WalkForwardValidator
 
 
@@ -164,7 +170,93 @@ def test_fold_metadata_contains_purge_and_embargo():
 
     assert metadata["purge_size"] == 3
     assert metadata["embargo_size"] == 2
+    assert metadata["validation_method"] == "purged_cv"
     assert metadata["validation_start_index"] is not None
+
+
+def test_purged_cv_can_use_lookahead_bars_as_purge_size():
+    fold = PurgedTimeSeriesSplit(
+        n_splits=1,
+        validation_window_bars=10,
+        train_window_bars=12,
+        purge_size=None,
+        lookahead_bars=4,
+        embargo_size=0,
+    ).split(_dataset(30))[0]
+
+    assert fold.purge_size == 4
+    assert fold.validation_start - 1 not in fold.train_indices
+    assert fold.validation_start - 4 not in fold.train_indices
+    assert fold.validation_start - 5 in fold.train_indices
+
+
+def test_walk_forward_summary_metadata_contains_required_fields():
+    data = _dataset(35)
+    validator = WalkForwardValidator(
+        settings=TrainingValidationSettings(
+            method="walk_forward",
+            n_splits=2,
+            train_window_bars=10,
+            validation_window_bars=5,
+            test_window_bars=2,
+            expanding_window=True,
+            purge_size=0,
+            embargo_size=1,
+        ),
+        purge_size=3,
+    )
+    split = validator.split(data)
+    metadata = split.to_summary_metadata(
+        data,
+        fold_metrics=[
+            {"fold_id": 0, "accuracy": 0.62},
+            {"fold_id": 1, "accuracy": 0.51},
+        ],
+    )
+
+    assert metadata["validation_method"] == "walk_forward"
+    assert metadata["purge_size"] == 3
+    assert metadata["embargo_size"] == 1
+    assert metadata["worst_fold_metric"] == 0.51
+    assert metadata["dataset_start"] is not None
+    assert metadata["dataset_end"] is not None
+    assert len(metadata["fold_metrics"]) == 2
+    assert metadata["folds"][0]["validation_method"] == "walk_forward"
+
+
+def test_validation_metadata_builder_handles_empty_fold_metrics():
+    data = _dataset(25)
+    folds = PurgedTimeSeriesSplit(
+        n_splits=1,
+        validation_window_bars=5,
+        train_window_bars=12,
+        purge_size=3,
+        embargo_size=2,
+    ).split(data)
+
+    metadata = build_validation_metadata(
+        dataset=data,
+        folds=folds,
+        validation_method="purged_cv",
+    )
+
+    assert metadata["fold_metrics"] == []
+    assert metadata["worst_fold_metric"] is None
+    assert metadata["dataset_start"] is not None
+    assert metadata["dataset_end"] is not None
+
+
+def test_chronological_validation_rejects_overlap():
+    with pytest.raises(ValueError, match="overlap"):
+        validate_chronological_folds(
+            [
+                PurgedFold(
+                    fold_id=0,
+                    train_indices=[0, 1, 2],
+                    validation_indices=[2, 3, 4],
+                )
+            ]
+        )
 
 
 def test_model_trainer_validation_metadata_for_purged_cv(settings):
@@ -188,6 +280,8 @@ def test_model_trainer_validation_metadata_for_purged_cv(settings):
     assert metadata["validation_method"] == "purged_cv"
     assert metadata["purge_size"] == 7
     assert metadata["embargo_size"] == 3
+    assert metadata["fold_metrics"] == []
+    assert metadata["worst_fold_metric"] is None
     assert metadata["validation_test_window_bars"] == 5
     assert metadata["dataset_start"] is not None
     assert metadata["dataset_end"] is not None

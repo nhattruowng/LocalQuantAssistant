@@ -538,6 +538,8 @@ class ModelTrainer:
             "embargo_size": validation.embargo_size,
             "dataset_start": _dataset_timestamp(dataset, 0),
             "dataset_end": _dataset_timestamp(dataset, len(dataset) - 1),
+            "fold_metrics": [],
+            "worst_fold_metric": None,
         }
         if validation.method in {"walk_forward", "purged_cv"}:
             metadata.update(

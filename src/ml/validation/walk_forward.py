@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import pandas as pd
 
 from config.settings import TrainingValidationSettings
-from ml.validation.purged_cv import PurgedFold, apply_purge_and_embargo
+from ml.validation.purged_cv import (
+    PurgedFold,
+    apply_purge_and_embargo,
+    build_validation_metadata,
+    validate_chronological_folds,
+)
 
 
 @dataclass(frozen=True)
@@ -19,6 +25,21 @@ class WalkForwardSplit:
     def to_metadata(self, dataset: pd.DataFrame) -> list[dict[str, object]]:
         """Return serializable metadata for every fold."""
         return [fold.to_metadata(dataset) for fold in self.folds]
+
+    def to_summary_metadata(
+        self,
+        dataset: pd.DataFrame,
+        fold_metrics: list[dict[str, Any]] | None = None,
+        metric_key: str = "accuracy",
+    ) -> dict[str, Any]:
+        """Return summary metadata for model registry and research reports."""
+        return build_validation_metadata(
+            dataset=dataset,
+            folds=self.folds,
+            validation_method="walk_forward",
+            fold_metrics=fold_metrics,
+            metric_key=metric_key,
+        )
 
 
 class WalkForwardValidator:
@@ -94,9 +115,11 @@ class WalkForwardValidator:
                     test_end=(test_indices[-1] + 1) if test_indices else None,
                     purge_size=base_fold.purge_size,
                     embargo_size=base_fold.embargo_size,
+                    validation_method="walk_forward",
                 )
             )
 
         if not folds:
             raise ValueError("No walk-forward folds could be created with current settings.")
+        validate_chronological_folds(folds)
         return WalkForwardSplit(folds=folds)

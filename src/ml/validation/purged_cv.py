@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 import pandas as pd
 
@@ -23,6 +24,7 @@ class PurgedFold:
     test_end: int | None = None
     purge_size: int = 0
     embargo_size: int = 0
+    validation_method: str = "purged_cv"
 
     def to_metadata(self, dataset: pd.DataFrame) -> dict[str, object]:
         """Return timestamp-aware metadata for this fold."""
@@ -33,6 +35,7 @@ class PurgedFold:
         test_start_index = self.test_indices[0] if self.test_indices else None
         test_end_index = self.test_indices[-1] if self.test_indices else None
         return {
+            "validation_method": self.validation_method,
             "fold_id": self.fold_id,
             "train_rows": len(self.train_indices),
             "validation_rows": len(self.validation_indices),
@@ -60,15 +63,17 @@ class PurgedTimeSeriesSplit:
     def __init__(
         self,
         n_splits: int,
-        purge_size: int,
+        purge_size: int | None = None,
         embargo_size: int = 0,
+        lookahead_bars: int | None = None,
         validation_window_bars: int | None = None,
         train_window_bars: int | None = None,
         test_window_bars: int = 0,
     ) -> None:
         if n_splits <= 0:
             raise ValueError("n_splits must be positive.")
-        if purge_size < 0 or embargo_size < 0:
+        resolved_purge_size = _resolve_purge_size(purge_size, lookahead_bars)
+        if resolved_purge_size < 0 or embargo_size < 0:
             raise ValueError("Purge and embargo sizes must be non-negative.")
         if validation_window_bars is not None and validation_window_bars <= 0:
             raise ValueError("validation_window_bars must be positive when provided.")
@@ -77,7 +82,7 @@ class PurgedTimeSeriesSplit:
         if test_window_bars < 0:
             raise ValueError("test_window_bars must be non-negative.")
         self._n_splits = n_splits
-        self._purge_size = purge_size
+        self._purge_size = resolved_purge_size
         self._embargo_size = embargo_size
         self._validation_window_bars = validation_window_bars
         self._train_window_bars = train_window_bars
@@ -134,11 +139,13 @@ class PurgedTimeSeriesSplit:
                     test_end=(test_indices[-1] + 1) if test_indices else None,
                     purge_size=fold.purge_size,
                     embargo_size=fold.embargo_size,
+                    validation_method="purged_cv",
                 )
             )
 
         if not folds:
             raise ValueError("No purged CV folds could be created.")
+        validate_chronological_folds(folds)
         return folds
 
     def _test_indices(self, row_count: int, validation_end: int) -> list[int]:
@@ -187,7 +194,78 @@ def apply_purge_and_embargo(
         validation_end=validation_end,
         purge_size=purge_size,
         embargo_size=embargo_size,
+        validation_method="purged_cv",
     )
+
+
+def validate_chronological_folds(folds: list[PurgedFold]) -> None:
+    """Validate strict chronological no-shuffle folds."""
+    for fold in folds:
+        train = set(fold.train_indices)
+        validation = set(fold.validation_indices)
+        test = set(fold.test_indices)
+        if train & validation:
+            raise ValueError(f"Fold {fold.fold_id} has train/validation overlap.")
+        if train & test:
+            raise ValueError(f"Fold {fold.fold_id} has train/test overlap.")
+        if validation & test:
+            raise ValueError(f"Fold {fold.fold_id} has validation/test overlap.")
+        if fold.train_indices and fold.validation_indices:
+            if max(fold.train_indices) >= min(fold.validation_indices):
+                raise ValueError(
+                    f"Fold {fold.fold_id} has validation timestamps before train ends."
+                )
+        if fold.validation_indices and fold.test_indices:
+            if max(fold.validation_indices) >= min(fold.test_indices):
+                raise ValueError(
+                    f"Fold {fold.fold_id} has test timestamps before validation ends."
+                )
+
+
+def build_validation_metadata(
+    dataset: pd.DataFrame,
+    folds: list[PurgedFold],
+    validation_method: str,
+    fold_metrics: list[dict[str, Any]] | None = None,
+    metric_key: str = "accuracy",
+) -> dict[str, Any]:
+    """Build metadata shared by walk-forward and purged validation reports."""
+    metrics = list(fold_metrics or [])
+    purge_size = max((fold.purge_size for fold in folds), default=0)
+    embargo_size = max((fold.embargo_size for fold in folds), default=0)
+    return {
+        "validation_method": validation_method,
+        "folds": [fold.to_metadata(dataset) for fold in folds],
+        "fold_metrics": metrics,
+        "purge_size": purge_size,
+        "embargo_size": embargo_size,
+        "worst_fold_metric": _worst_fold_metric(metrics, metric_key),
+        "dataset_start": _timestamp_at(dataset, 0 if not dataset.empty else None),
+        "dataset_end": _timestamp_at(dataset, len(dataset) - 1 if not dataset.empty else None),
+    }
+
+
+def _resolve_purge_size(purge_size: int | None, lookahead_bars: int | None) -> int:
+    if purge_size is not None:
+        return int(purge_size)
+    if lookahead_bars is None:
+        raise ValueError("purge_size or lookahead_bars is required.")
+    return int(lookahead_bars)
+
+
+def _worst_fold_metric(
+    fold_metrics: list[dict[str, Any]],
+    metric_key: str,
+) -> float | None:
+    values: list[float] = []
+    for item in fold_metrics:
+        if metric_key not in item:
+            continue
+        try:
+            values.append(float(item[metric_key]))
+        except (TypeError, ValueError):
+            continue
+    return min(values) if values else None
 
 
 def _timestamp_at(dataset: pd.DataFrame, index: int | None) -> str | int | None:
