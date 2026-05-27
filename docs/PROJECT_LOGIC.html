@@ -245,6 +245,16 @@
         background: #fff7ed;
       }
 
+      .ok {
+        color: var(--green);
+        font-weight: 700;
+      }
+
+      .warn {
+        color: var(--amber);
+        font-weight: 700;
+      }
+
       .buy {
         color: var(--green);
         font-weight: 700;
@@ -329,6 +339,7 @@
           <a href="#features">5. Feature Engineering</a>
           <a href="#regime">6. Market Regime</a>
           <a href="#labeling-training">7. Labeling và Training</a>
+          <a href="#reasoning">7.5. Market Reasoning Brain</a>
           <a href="#signal">8. Signal Engine</a>
           <a href="#strategies">9. Chiến lược giao dịch</a>
           <a href="#risk">10. Risk Manager</a>
@@ -341,6 +352,7 @@
           <a href="#config">17. Config và threshold</a>
           <a href="#commands">18. Cách chạy</a>
           <a href="#extension">19. Mở rộng</a>
+          <a href="#release">20. Release Integration Snapshot</a>
         </nav>
       </aside>
 
@@ -352,7 +364,7 @@
             risk management, backtesting, paper trading và các interface của dự án.
           </p>
           <div class="meta">
-            <span class="tag">Phiên bản tài liệu: 2026-05-23</span>
+            <span class="tag">Phiên bản tài liệu: 2026-05-28</span>
             <span class="tag">Mục tiêu: Research & Decision Support</span>
             <span class="tag">Không auto trade tiền thật</span>
             <span class="tag">Multi-timeframe confirmation</span>
@@ -360,7 +372,22 @@
             <span class="tag">Adaptive risk controls</span>
             <span class="tag">Versioned model registry</span>
             <span class="tag">Regime-specific models</span>
+            <span class="tag">Market Reasoning Brain</span>
+            <span class="tag">WAIT reason taxonomy</span>
+            <span class="tag">Decision trace & confluence</span>
+            <span class="tag">Drift monitoring</span>
+            <span class="tag">Ablation analytics</span>
+            <span class="tag">Risk Dashboard</span>
           </div>
+        </section>
+
+        <section class="card">
+          <h3>Tài liệu tích hợp liên quan</h3>
+          <ul>
+            <li><a href="./architecture.md">docs/architecture.md</a></li>
+            <li><a href="./research_platform.md">docs/research_platform.md</a></li>
+            <li><a href="./roadmap.md">docs/roadmap.md</a></li>
+          </ul>
         </section>
 
         <div class="warning">
@@ -368,7 +395,7 @@
           LocalQuant Assistant chỉ phục vụ nghiên cứu, phân tích và hỗ trợ ra quyết định.
           Hệ thống không phải lời khuyên tài chính, không đảm bảo lợi nhuận và không thực thi
           giao dịch tiền thật tự động. Tất cả BUY/SELL/WAIT chỉ là gợi ý dựa trên dữ liệu,
-          model, rule và risk filter.
+          model, rule, confluence score, conflict resolution, wait reason và risk filter.
         </div>
 
         <h2 id="architecture">2. Kiến trúc tổng thể</h2>
@@ -413,14 +440,14 @@ Structured Explanation / Notification / Backtest / Paper Trading / UI / API</pre
             <h3>Domain Layer</h3>
             <p>
               Chứa enum, entity và model nghiệp vụ như signal type, strategy type,
-              TradeSetup, RiskPlan, BacktestReport.
+              TradeSetup, ReasoningDecision, DecisionTrace, RiskPlan, BacktestReport.
             </p>
           </div>
           <div class="card">
             <h3>Application Layer</h3>
             <p>
               Điều phối luồng: DashboardService, LocalQuantApiService, agent orchestration,
-              command từ CLI và service cho UI.
+              command từ CLI và service cho UI, reasoning brain, drift monitoring và analytics.
             </p>
           </div>
           <div class="card">
@@ -484,7 +511,7 @@ Structured Explanation / Notification / Backtest / Paper Trading / UI / API</pre
             </tr>
             <tr>
               <td><code>signals</code></td>
-              <td>Tổng hợp model probability, regime, strategy opinions, memory, safety filters và risk thành TradeSetup.</td>
+              <td>Tổng hợp model probability, regime, strategy opinions, memory, safety filters, confluence/conflict và risk thành TradeSetup.</td>
               <td><code>signal_engine.py</code>, <code>adaptive_decision_engine.py</code>, <code>models.py</code></td>
             </tr>
             <tr>
@@ -907,10 +934,94 @@ Nếu không
           và <code>fallback_reason</code> để UI/API biết xác suất đến từ model nào.
         </p>
 
+        <h2 id="reasoning">7.5 Market Reasoning Brain</h2>
+        <p>
+          Market Reasoning Brain là lớp tổng hợp quyết định mới của LocalQuant Assistant.
+          Nó thay tư duy checklist cứng bằng scoring dựa trên evidence, confluence, conflict,
+          drift và risk gate. Mục tiêu không phải là khớp setup 100%, mà là đo mức đồng thuận
+          giữa các nhóm evidence trước khi trả BUY, SELL hoặc WAIT.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Thành phần</th>
+              <th>Vai trò</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>Evidence</code></td>
+              <td>Đại diện cho bằng chứng từ regime, price action, ICT, volume, model, MTF và risk.</td>
+            </tr>
+            <tr>
+              <td><code>ConfluenceEngine</code></td>
+              <td>Tính raw confluence score, normalize weight theo source và phân bổ impact_on_score.</td>
+            </tr>
+            <tr>
+              <td><code>ConflictResolver</code></td>
+              <td>Đánh giá mâu thuẫn giữa các evidence, tính conflict penalty và khuyến nghị WAIT hoặc REDUCE_SIZE khi conflict mạnh.</td>
+            </tr>
+            <tr>
+              <td><code>SetupClassifier</code></td>
+              <td>Suy luận setup_type như TREND_CONTINUATION_PULLBACK, CLEAN_BREAKOUT, RANGE_REVERSION hoặc CONFLICTED.</td>
+            </tr>
+            <tr>
+              <td><code>DecisionTrace</code></td>
+              <td>Lưu từng bước reasoning: data_quality, soft_regime, price_action_structure, ict_confluence, model_prediction, confluence_score, conflict_resolution, risk_guard, position_sizing, final_decision.</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          WAIT luôn phải có lý do rõ ràng. Hệ thống chuẩn hóa WAIT thành các nhóm như
+          <code>WAIT_LOW_CONFIDENCE</code>, <code>WAIT_STRATEGY_CONFLICT</code>,
+          <code>WAIT_MTF_CONFLICT</code>, <code>WAIT_RISK_BLOCK</code>,
+          <code>WAIT_DATA_QUALITY</code>, <code>WAIT_HIGH_VOLATILITY</code> và
+          <code>WAIT_NO_CLEAR_SETUP</code>. Nếu không xác định được nguyên nhân cụ thể,
+          fallback mặc định là <code>WAIT_NO_CLEAR_SETUP</code>.
+        </p>
+        <pre>Evidence inputs
+  -> regime / price action / ict / volume / model / mtf / risk
+  -> ConfluenceEngine
+  -> ConflictResolver
+  -> RiskGuard / Safety Filters
+  -> ReasoningDecision
+  -> DecisionTrace + explanation_v2
+  -> BUY / SELL / WAIT</pre>
+        <table>
+          <thead>
+            <tr>
+              <th>Output field</th>
+              <th>Ý nghĩa cho UI / backtest / audit</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>setup_type</code></td>
+              <td>Gắn nhãn setup để nghiên cứu edge theo loại setup.</td>
+            </tr>
+            <tr>
+              <td><code>confluence_score</code></td>
+              <td>Điểm đồng thuận tổng hợp từ evidence_for và evidence_against.</td>
+            </tr>
+            <tr>
+              <td><code>conflict_level</code></td>
+              <td>NONE / LOW / MEDIUM / HIGH để hiển thị warning nổi bật nếu conflict mạnh.</td>
+            </tr>
+            <tr>
+              <td><code>wait_reason</code></td>
+              <td>Lý do WAIT có thể backtest, phân tích phân phối và hiển thị trên UI.</td>
+            </tr>
+            <tr>
+              <td><code>decision_trace</code></td>
+              <td>Lưu timeline reasoning để debug và kiểm chứng từng bước suy luận.</td>
+            </tr>
+          </tbody>
+        </table>
+
         <h2 id="signal">8. Signal Engine</h2>
         <p>
           SignalEngine là cổng quyết định cuối cùng. Nó không chỉ nghe model, mà còn bắt buộc đi qua:
-          regime, strategy rule, multi-timeframe confirmation, risk/reward và position sizing.
+          reasoning brain, regime, strategy rule, multi-timeframe confirmation, risk/reward và position sizing.
         </p>
 
         <pre class="flow">Input:
@@ -934,7 +1045,8 @@ Process:
   9. Giảm confidence hoặc WAIT nếu timeframe conflict mạnh
   10. RiskGuard / CircuitBreaker kiểm tra overtrading và setup nguy hiểm
   11. Tạo explanation_v2 có cấu trúc
-  12. Trả TradeSetup
+  12. Lưu decision_trace với final_decision
+  13. Trả TradeSetup / reasoning_decision
 
 Output:
   BUY / SELL / WAIT TradeSetup + explanation_v2</pre>
@@ -1951,6 +2063,49 @@ make docker-down</pre>
             </ul>
           </div>
         </div>
+
+        <h2 id="release">20. Release Integration Snapshot</h2>
+        <p>
+          Trạng thái tích hợp hiện tại đã đồng bộ backend contract, frontend research dashboards và
+          tài liệu kiến trúc. Platform tiếp tục giữ boundary research-only, không có flow đặt lệnh
+          tiền thật tự động.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Hạng mục</th>
+              <th>Trạng thái</th>
+              <th>Ghi chú</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Market Reasoning Brain + DecisionTrace</td>
+              <td><span class="ok">Integrated</span></td>
+              <td>Signal payload hỗ trợ evidence, confluence/conflict và trace step-level.</td>
+            </tr>
+            <tr>
+              <td>Backtest Research Dashboard</td>
+              <td><span class="ok">Integrated</span></td>
+              <td>Overall metrics, equity/drawdown, slice analytics, wait reasons, ablation.</td>
+            </tr>
+            <tr>
+              <td>Model Dashboard</td>
+              <td><span class="ok">Integrated</span></td>
+              <td>Model status, calibration panel, drift report, drifted features.</td>
+            </tr>
+            <tr>
+              <td>Risk Dashboard + RiskGuard hard block</td>
+              <td><span class="ok">Integrated</span></td>
+              <td>BLOCKED/COOLDOWN state, drawdown, losses, exposure, risk events.</td>
+            </tr>
+            <tr>
+              <td>Auto trade live execution</td>
+              <td><span class="warn">Out of scope</span></td>
+              <td>Hệ thống chỉ phục vụ research & decision support.</td>
+            </tr>
+          </tbody>
+        </table>
 
         <h2>Phụ lục: TradeSetup JSON mẫu</h2>
         <pre>{

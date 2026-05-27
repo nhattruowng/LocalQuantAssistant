@@ -1,5 +1,7 @@
 # LocalQuant Research Platform Architecture
 
+Updated: 2026-05-28
+
 ## 1. Scope
 
 LocalQuant is a research and decision-support platform for discretionary trading workflows.
@@ -90,3 +92,9 @@ System outputs are advisory only:
 - No exchange/broker order submission path for live trading
 - Paper trading is simulation-only
 - Human approval is required before any real market action
+
+## 6. Related Docs
+
+- `docs/research_platform.md` for response contracts and dashboard integration
+- `docs/roadmap.md` for rollout phases and next milestones
+- `docs/PROJECT_LOGIC.html` for full visual technical walkthrough

@@ -1,5 +1,7 @@
 # Research Platform Integration Guide
 
+Updated: 2026-05-28
+
 ## 1. Purpose
 
 This document summarizes how backend intelligence and frontend dashboards are integrated for research operations.
@@ -137,3 +139,9 @@ The platform is strictly research-first:
 - no automated real-money execution
 - no live order placement path
 - outputs are advisory and must be human-reviewed
+
+## 8. Verification Notes
+
+- Frontend dashboards are verified via lint/test/build workflow.
+- Backend API contracts are covered by unit tests for signal, decision trace, backtest analyzer, and drift monitoring.
+- Full backend runtime validation still depends on a stable Python environment with scientific dependencies installed.

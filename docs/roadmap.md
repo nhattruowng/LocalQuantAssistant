@@ -1,5 +1,7 @@
 # LocalQuant Roadmap
 
+Updated: 2026-05-28
+
 ## Current Milestone: Research Platform Integration
 
 Completed integration scope:
@@ -73,3 +75,9 @@ Completed integration scope:
 No auto trade execution in live markets.
 
 LocalQuant remains a research and decision-support platform, not a live trading bot.
+
+## Documentation Rollout
+
+1. Keep `docs/architecture.md` as source of truth for system boundaries and layers.
+2. Keep `docs/research_platform.md` aligned with API and dashboard contracts.
+3. Keep `docs/PROJECT_LOGIC.html` synchronized with architecture and release snapshot.
