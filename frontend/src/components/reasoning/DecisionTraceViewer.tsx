@@ -16,6 +16,13 @@ interface DecisionTraceViewerProps {
   className?: string;
 }
 
+const FILTER_OPTIONS: Array<{ value: DecisionTraceFilter; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "failed", label: "Failed" },
+  { value: "warning", label: "Warning" },
+  { value: "score_changes", label: "Score Changes" },
+];
+
 function isWarningStep(step: DecisionStepPayload) {
   return Boolean(Array.isArray(step.warnings) && step.warnings.length);
 }
@@ -74,26 +81,32 @@ export function DecisionTraceViewer({ trace, title = "Decision Trace", className
         <div className="flex flex-wrap items-center gap-2">
           <Select
             className="h-9"
-            options={["all", "failed", "warning", "score_changes"]}
-            value={filter}
-            onChange={(event) => setFilter(event.target.value as DecisionTraceFilter)}
+            options={FILTER_OPTIONS.map((option) => option.label)}
+            aria-label="Decision trace filter"
+            value={FILTER_OPTIONS.find((option) => option.value === filter)?.label ?? "All"}
+            onChange={(event) => {
+              const selected = FILTER_OPTIONS.find((option) => option.label === event.target.value);
+              setFilter(selected?.value ?? "all");
+            }}
           />
           <Button
             type="button"
             onClick={() => setMode((current) => (current === "timeline" ? "accordion" : "timeline"))}
             className="h-9 bg-muted px-3 text-foreground hover:opacity-100"
+            aria-label="Toggle trace mode"
           >
             <Filter className="h-4 w-4" />
-            {mode === "timeline" ? "Timeline" : "Accordion"}
+            {mode === "timeline" ? "Timeline mode" : "Accordion mode"}
           </Button>
           <Button
             type="button"
             onClick={() => setDensity((current) => (current === "compact" ? "full" : "compact"))}
             className="h-9 bg-muted px-3 text-foreground hover:opacity-100"
+            aria-label="Toggle detail mode"
           >
-            {density === "compact" ? "Compact" : "Full detail"}
+            {density === "compact" ? "Compact mode" : "Full detail mode"}
           </Button>
-          <Button type="button" onClick={copyTrace} className="h-9">
+          <Button type="button" onClick={copyTrace} className="h-9" aria-label="Copy trace json">
             <Copy className="h-4 w-4" />
             {copied ? "Copied" : "Copy Trace JSON"}
           </Button>
