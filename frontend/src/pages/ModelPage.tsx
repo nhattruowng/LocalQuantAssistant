@@ -43,21 +43,20 @@ function extractProbabilityRows(calibration?: ModelCalibration | null): Probabil
 
 function normalizeDriftFeatures(features?: DriftReportPayload["drifted_features"]): DriftFeatureRow[] {
   if (!Array.isArray(features)) return [];
-  return features
-    .map((item, index) => {
-      const row = toRecord(item);
-      if (!row) return null;
-      return {
-        feature: String(row.feature ?? row.name ?? row.column ?? `feature_${index + 1}`),
-        psi: toNumber(row.psi ?? row.population_stability_index),
-        driftScore: toNumber(row.drift_score ?? row.driftScore ?? row.score),
-        trainMean: toNumber(row.train_mean ?? row.baseline_mean ?? row.mean_train),
-        recentMean: toNumber(row.recent_mean ?? row.current_mean ?? row.mean_recent),
-        severity: String(row.severity ?? row.status ?? row.level ?? ""),
-      };
-    })
-    .filter((row): row is DriftFeatureRow => Boolean(row))
-    .sort((left, right) => (right.driftScore ?? right.psi ?? 0) - (left.driftScore ?? left.psi ?? 0));
+  const rows: DriftFeatureRow[] = [];
+  features.forEach((item, index) => {
+    const row = toRecord(item);
+    if (!row) return;
+    rows.push({
+      feature: String(row.feature ?? row.name ?? row.column ?? `feature_${index + 1}`),
+      psi: toNumber(row.psi ?? row.population_stability_index),
+      driftScore: toNumber(row.drift_score ?? row.driftScore ?? row.score),
+      trainMean: toNumber(row.train_mean ?? row.baseline_mean ?? row.mean_train),
+      recentMean: toNumber(row.recent_mean ?? row.current_mean ?? row.mean_recent),
+      severity: String(row.severity ?? row.status ?? row.level ?? ""),
+    });
+  });
+  return rows.sort((left, right) => (right.driftScore ?? right.psi ?? 0) - (left.driftScore ?? left.psi ?? 0));
 }
 
 export function ModelPage() {

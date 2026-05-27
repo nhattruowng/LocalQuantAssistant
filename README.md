@@ -72,6 +72,22 @@ MarketDataAgent
 
 Các agent chỉ điều phối pipeline phân tích và tạo `TradeSetup`. Không có agent nào đặt lệnh thật.
 
+## Integration Docs
+
+- [Architecture](docs/architecture.md)
+- [Research Platform](docs/research_platform.md)
+- [Roadmap](docs/roadmap.md)
+
+Các tài liệu này mô tả chi tiết:
+
+- Market Reasoning Brain
+- Evidence / confluence / conflict flow
+- RiskGuard hard block behavior
+- BacktestAnalyzer analytics dimensions
+- Model training + calibration + drift pipeline
+- Frontend research dashboards
+- Boundary không auto trade thật
+
 ## Tech Stack
 
 | Area | Technology |
